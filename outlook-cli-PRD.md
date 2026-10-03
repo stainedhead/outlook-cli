@@ -119,7 +119,7 @@ All output uses the shared envelope, exit codes and bounds specified in `agent-c
 
 | ID | Requirement | Pri |
 |---|---|---|
-| AUTH-1 | Obtain the Graph token from the daemon (`msgraph`); no fallback credentials; no token output command | P0 |
+| AUTH-1 | Obtain the Graph token from the daemon (`msgraph`); no fallback credentials; no token output command; if the daemon is unreachable, exit 3 with a clear message that says so (`agent-cli-core-PRD.md`, CORE-AUTH-3) | P0 |
 | AUTH-2 | On 401, force one daemon refresh and retry once; if the daemon reports `reauth_required`, exit 3 with a message that a human must run `agent-okta-d enroll msgraph` | P0 |
 | AUTH-3 | On 403 from Graph/Exchange, exit 4 and report the Graph error code without the request body | P0 |
 | AUTH-4 | Handle 429/503 with `Retry-After`; exit 8 after bounded retries | P0 |
@@ -271,7 +271,7 @@ Applies to this repository only; the four Go repositories in the set (`agent-okt
 | ID | Target | Build | Artifact |
 |---|---|---|---|
 | REL-1a | **macOS, Apple silicon** | `darwin/arm64` | `.tar.gz` containing the `outlook` binary, signed and notarized with an Apple Developer ID ⚠️ (see 16.8 item 1). |
-| REL-1b | **Windows via WSL** | `linux/amd64` (and `linux/arm64` for WSL on Arm, see 16.8) | `.tar.gz`; WSL runs Linux binaries, so **this is the Linux build** and no native Windows `.exe` is produced. Native Windows is not a target. |
+| REL-1b | **Windows via WSL2** | `linux/amd64` (and `linux/arm64` for WSL on Arm, see 16.8) | `.tar.gz`; WSL runs Linux binaries, so **this is the Linux build** and no native Windows `.exe` is produced. Native Windows is not a target. |
 | REL-1c | **Linux, AWS-hosted container** | `linux/amd64` and `linux/arm64` (Graviton) | Multi-arch **OCI image** `ghcr.io/stainedhead/outlook-cli:vX.Y.Z`, non-root, minimal base, plus the same Linux binaries as `.tar.gz` |
 
 Common to all targets:
