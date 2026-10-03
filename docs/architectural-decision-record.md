@@ -13,7 +13,7 @@ One entry per decision. Status values: Accepted, Superseded, Proposed. Questions
 
 - Status: Accepted
 - Context: The token source needs a client for `agent-okta-d`, which has not published `pkg/client`.
-- Decision: `cmd/outlook` has `newDaemonClient()` returning an implementation of the core's client interface that reports the daemon as unavailable (exit 3, with the core's message naming the socket). Everything downstream uses the core interface. Detail: `adr-daemon-client-stub.md` (written alongside the CLI adapter work).
+- Decision: `cmd/outlook` has `newDaemonClient()` returning an implementation of the core's client interface that reports the daemon as unavailable (exit 3, with the core's message naming the socket). Everything downstream uses the core interface. Detail: `adr-daemon-client-stub.md`. The real adapter is deferred until `agent-okta-d` publishes a Go client; the daemon socket path is an unverified assumption.
 - Consequences: The CLI builds, tests and runs without the daemon; any token request fails closed. The swap to the real adapter is a single function change. Authentication paths are tested with the core's `authtest.Fake`.
 
 ## ADR-3: Delegated access to /me only
@@ -49,3 +49,23 @@ One entry per decision. Status values: Accepted, Superseded, Proposed. Questions
 - Status: Accepted
 - Decision: `cmd/outlook` composition root, adapters, use cases with ports, then domain, with dependencies pointing inward. `internal/archtest` fails the build on violations. The use-case layer owns the port interfaces, and a single `Clock` port is the only time source in inner layers.
 - Consequences: Tests use fakes and `httptest`; no test touches a real network or sends mail.
+
+## ADR-8: List commands return a JSON array with a trailing page-token element
+
+- Status: Accepted
+- Context: Core output bounding cuts whole array items but cannot cut an object (`ErrBoundTooSmall`), and the core `Meta` has no continuation token.
+- Decision: `mail list`, `mail search`, `mail draft list`, `folder list` and `attachment list` emit `data` as an array. A Graph continuation is a final element `{"next_page_token":"..."}`. When output is truncated that element is cut too and the caller resumes with `--offset`.
+- Consequences: Differs from the object form shown in PRD section 10. Removable if the core adds `Meta.next_page_token` (requested-core-changes items 2 and 13).
+
+## ADR-9: Audit failures block commands
+
+- Status: Accepted
+- Context: A write that goes unrecorded defeats attribution.
+- Decision: The audit sink runs in core `audit.Block` mode for every command, reads included. The audit directory must be writable by the agent user, and the idempotency ledger is stored in that directory.
+- Consequences: An unwritable audit path stops the tool; this is a configuration fault surfaced early. The policy directory must be read-only while the audit directory is writable (UA-23, UA-24).
+
+## ADR-10: Selftest runs the whole matrix as dry-runs
+
+- Status: Accepted
+- Decision: `outlook selftest` runs 13 allow/deny rows. Write rows are dry-run requests and denial rows are refused before any Graph write, so nothing is sent. Negative cross-mailbox probes (PRD section 11) are not implemented because they need a real tenant (UA-25).
+- Consequences: With the stub daemon every row fails with exit 1 (the rows report the daemon error). The selftest passes only against a working backend or fakes.

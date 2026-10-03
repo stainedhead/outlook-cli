@@ -1,6 +1,6 @@
 # outlook-cli Specification
 
-Date: 2026-10-03 | Source PRD: `specs/261003-outlook-cli/outlook-cli-PRD.md` | Status: Draft
+Date: 2026-10-03 | Source PRD: `specs/261003-outlook-cli/outlook-cli-PRD.md` | Status: Implemented (docs complete; real daemon adapter and real-tenant verification deferred)
 
 ## 1. Executive Summary
 `outlook` is a Go CLI giving an autonomous agent read/triage/send access to its own Microsoft 365 mailbox via Microsoft Graph `/me/...`, built on `github.com/stainedhead/agent-cli-core v0.1.0` (packages `output`, `auth`, `policy`, `audit`, `httpx`, `selftest`, `docgen`, `auth/authtest`). Tokens come from the `agent-okta-d` daemon (provider `msgraph`); in this feature the daemon client is a stub reporting "daemon unavailable" (exit 3).

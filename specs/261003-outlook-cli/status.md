@@ -6,6 +6,7 @@
 | Phase A Foundation | Complete (A1, A2) |
 | Phase B Workstreams WS1-WS5 | Complete (merged into feat/outlook-cli) |
 | Phase C Integration | Complete (composition root, integration tests, docs fold-in, gates) |
+| Step 4 Documentation and user docs | Complete (2026-10-03) |
 
 ## Phase 0 checklist
 - [x] Spec created
@@ -26,3 +27,4 @@ None. Real-tenant verification (M0 spikes) and the agent-okta-d client remain de
 - 2026-10-03 Phase A: go.mod requires core v0.1.0, version stub, domain types and usecase ports, arch test, Makefile, docs skeleton.
 - 2026-10-03 Phase B: WS1 (domain, use cases), WS2 (Graph adapter, ledger, quarantine), WS3 (CLI, skill), WS4 (policy file, audit, selftest), WS5 (docs, user-docs) merged.
 - 2026-10-03 Phase C: composition root wired (cmd/outlook/app.go), shared-type requests applied, integration tests through the real command tree, NOTES files folded into docs.
+- 2026-10-03 Step 4: docs/ and user-docs/ rewritten from the built binary and code; README updated; real daemon adapter and real-tenant verification stated as deferred.

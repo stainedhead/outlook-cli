@@ -19,5 +19,9 @@ Progress: all listed tasks complete
 - [x] W4.1 YAML policy loader; W4.2 audit JSONL; W4.3 selftest matrix; W4.4 secret-pattern filter
 ## WS5 docs
 - [x] W5.1 docs/ set; W5.2 user-docs/ set + sample policy
+## Step 4 documentation (2026-10-03)
+- [x] D1 docs/ product-summary, product-details, technical-details, ADR 8-10 updated to the built code
+- [x] D2 user-docs/ getting-started, configuration (policy + sample), usage, exit-codes, troubleshooting; README links all
+- [x] D3 deferred daemon adapter and unverified assumptions stated in README, user-docs and docs/
 ## Phase C
 - [x] C1 Merge + integration tests; C2 quality gates (fmt, vet, lint, race, coverage, cross-compile)

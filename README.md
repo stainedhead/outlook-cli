@@ -1,8 +1,8 @@
 # outlook-cli
 
-`outlook` is a planned Go CLI that lets an autonomous agent read, triage and send corporate email **as its own Entra user, from its own mailbox**, through Microsoft Graph.
+`outlook` is a Go CLI that lets an autonomous agent read, triage and send corporate email **as its own Entra user, from its own mailbox**, through Microsoft Graph.
 
-> **Status: Draft PRD (v0.2), no implementation yet.** This repository currently contains the requirements document and project scaffolding only. See [`outlook-cli-PRD.md`](outlook-cli-PRD.md).
+> **Status: implemented, not yet usable end to end.** The command surface, client-side policy, untrusted-content handling, idempotency ledger, audit log and selftest are built and tested against fakes. Two things are not done: the real `agent-okta-d` credential adapter is **deferred** (the daemon has no Go client yet, so every command that needs a token exits 3, "daemon unavailable"), and **nothing has been verified against a real Microsoft 365 tenant** (the real-tenant spikes are a checklist in [`docs/m0-spike-checklist.md`](docs/m0-spike-checklist.md)). See [`docs/deferred.md`](docs/deferred.md) and [`docs/unverified-assumptions.md`](docs/unverified-assumptions.md).
 
 **Evidence legend (from the PRD).** ✅ = confirmed against vendor documentation during research (2026-10-03). ⚠️ = not confirmed in vendor docs (engineering judgment, secondary source, or general Graph knowledge). Graph endpoint shapes in the PRD are from general knowledge of Graph v1.0 and need verification before build.
 
@@ -29,9 +29,9 @@ Non-goals: reading people's mailboxes on their behalf, human mode, forwarding, r
 - **Untrusted-content envelope.** Subject, body, display names and attachment names are marked `untrusted`; HTML is converted to text, links are listed separately and defanged, images are never fetched, attachment download is off by default.
 - **Attribution and idempotency.** Subject prefix and footer naming the agent id, `X-Agent-Id` / `X-Agent-Run` headers ⚠️, a local idempotency ledger, and `--dry-run`.
 - **Deliberately absent:** forward, permanent delete, inbox rules, delegates, mailbox settings, contacts, send-on-behalf, any mailbox parameter.
-- **Shared core.** Builds on [agent-cli-core](https://github.com/stainedhead/agent-cli-core), its own repository (output envelope, exit codes, bounds, policy, audit), specified in its `agent-cli-core-PRD.md`; it originated in `snow-cli-PRD.md` section 5. Not yet a `go.mod` dependency because no release exists.
+- **Shared core.** Builds on [agent-cli-core](https://github.com/stainedhead/agent-cli-core), its own repository (output envelope, exit codes, bounds, policy, audit), specified in its `agent-cli-core-PRD.md`; it originated in `snow-cli-PRD.md` section 5. `go.mod` requires `agent-cli-core v0.1.0` (no `replace`). `agent-okta-d` is not a dependency.
 
-Planned commands include `whoami`, `folder list`, `mail list|get|search|send|reply|draft|mark|move`, `attachment list|get` (off by default), `calendar list` (P2) and `selftest`. Full table in PRD section 6.
+Commands: `whoami`, `folder list`, `mail list|get|search|send|reply|draft create|list|send|delete|mark|move`, `attachment list|get` (download off by default), `selftest`, `version`. Run `outlook --help` for usage. There is no calendar command (calendar is P2, read-only, deferred). Full table in PRD section 6.
 
 ## Companion repositories
 
@@ -44,29 +44,34 @@ Planned commands include `whoami`, `folder list`, `mail list|get|search|send|rep
 | [outlook-cli](https://github.com/stainedhead/outlook-cli) | This repository |
 | [agentic-team-w-paperclip](https://github.com/stainedhead/agentic-team-w-paperclip) | Related project, part of the set rooted at [agentic-teams](https://github.com/stainedhead/agentic-teams) |
 
-## Planned layout
+## Layout
 
 ```
-cmd/outlook/     main package (not yet created)
-internal/        application packages (not yet created)
-docs/            contributor-facing product and technical docs
+cmd/outlook/     composition root (main, wiring, daemon client stub)
+internal/        domain, usecase, adapter/{cli,graph,policyfile,ledger,auditlog,selftestcfg}, archtest
+docs/            contributor docs: product, technical, ADRs, deferred work, unverified assumptions
 user-docs/       end-user docs: install, configuration, usage, troubleshooting
-specs/archive/   completed feature specs
-outlook-cli-PRD.md
+specs/           feature specs; completed ones move to specs/archive/
+INTENT.md        purpose and wider context
 AGENTS.md        rules for agents and contributors
 ```
 
 ## Documentation
 
-- Requirements: [`outlook-cli-PRD.md`](outlook-cli-PRD.md)
-- Contributor docs: [`docs/`](docs/)
-- User documentation: [`user-docs/`](user-docs/) (empty until there is something to use)
+- User documentation: [`user-docs/`](user-docs/)
+  - [Getting started](user-docs/getting-started.md)
+  - [Configuration reference and sample policy](user-docs/configuration.md)
+  - [Usage examples](user-docs/usage.md)
+  - [Exit codes](user-docs/exit-codes.md)
+  - [Troubleshooting](user-docs/troubleshooting.md) (including daemon unavailable, exit 3)
+- Contributor docs: [`docs/`](docs/) - [product summary](docs/product-summary.md), [product details](docs/product-details.md), [technical details](docs/technical-details.md), [ADRs](docs/architectural-decision-record.md), [deferred work](docs/deferred.md), [unverified assumptions](docs/unverified-assumptions.md), [requested core changes](docs/requested-core-changes.md)
+- Requirements: the PRD under [`specs/261003-outlook-cli/`](specs/261003-outlook-cli/)
 - Contributor and agent rules: [`AGENTS.md`](AGENTS.md)
 
 ## Development
 
 ```
-make fmt lint test build
+make fmt lint test build     # also: make check, make race, make cross, make skill
 ```
 
-Requires Go 1.27 and golangci-lint. Never commit credentials.
+Requires Go 1.27 and golangci-lint. The core module is private: set `GOPRIVATE=github.com/stainedhead/*` and have repository access. Never commit credentials.
