@@ -444,3 +444,15 @@ func TestHostIsPinned(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+func TestAssumedReplyCarriesInternetHeaders(t *testing.T) {
+	e := newEnv(t, authtest.Valid, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(202) })
+	err := e.c.ReplyToSender(ctx, domain.Reply{MessageID: "M1", Body: "x", InternetHeaders: []domain.Header{{Name: "X-Agent-Run", Value: "r1"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"message":{"internetMessageHeaders":[{"name":"X-Agent-Run","value":"r1"}]},"comment":"x"}`
+	if s := e.rec.last(t); s.Body != want {
+		t.Fatalf("body %s", s.Body)
+	}
+}

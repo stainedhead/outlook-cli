@@ -31,9 +31,9 @@ func TestDefaultSocket(t *testing.T) {
 	}
 }
 
-func TestBuildAppNotWiredYet(t *testing.T) {
+func TestBuildAppFailsClosedWithoutPolicy(t *testing.T) {
 	if _, err := buildApp(context.Background()); err == nil {
-		t.Error("expected not-wired error")
+		t.Error("expected a policy error (default path absent)")
 	}
 }
 

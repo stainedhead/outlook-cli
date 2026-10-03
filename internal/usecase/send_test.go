@@ -760,6 +760,31 @@ func TestSendDraft(t *testing.T) {
 	}
 }
 
+func TestSendDraftBccAllowedWhenPolicyAllows(t *testing.T) {
+	e := newEnv(t, func(p *domain.Policy) { p.Send.Recipients.BccAllowed = true })
+	e.addMessage("d1", "f-drafts", draftMsg(func(m *domain.RawMessage) { m.Bcc = []domain.Address{{Address: "x@corp.example.com"}} }))
+	if _, err := e.cmds.SendDraft(context.Background(), SendDraftRequest{DraftID: "d1"}); err != nil || len(e.w.sentDraf) != 1 {
+		t.Errorf("err=%v sent=%d", err, len(e.w.sentDraf))
+	}
+}
+
+func TestReplyCarriesAgentHeaders(t *testing.T) {
+	e := newEnv(t)
+	e.addMessage("m1", "f-inbox")
+	if _, err := e.cmds.Reply(context.Background(), ReplyRequest{MessageID: "m1", Body: "ok"}); err != nil || len(e.w.replies) != 1 {
+		t.Fatalf("err=%v", err)
+	}
+	found := false
+	for _, h := range e.w.replies[0].InternetHeaders {
+		if h.Name == "X-Agent-Run" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("reply headers = %+v", e.w.replies[0].InternetHeaders)
+	}
+}
+
 func TestSendDraftRevalidatesAtSendTime(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
@@ -771,6 +796,7 @@ func TestSendDraftRevalidatesAtSendTime(t *testing.T) {
 		{"recipient edited to external", draftMsg(func(m *domain.RawMessage) { m.To = []domain.Address{{Address: "x@evil.com"}} }), nil, 6},
 		{"external with draft_only needs a human", draftMsg(func(m *domain.RawMessage) { m.To = []domain.Address{{Address: "x@partner.com"}} }),
 			func(p *domain.Policy) { p.Send.Recipients.External = domain.ExternalDraftOnly }, 6},
+		{"bcc added to a draft", draftMsg(func(m *domain.RawMessage) { m.Bcc = []domain.Address{{Address: "x@corp.example.com"}} }), nil, 6},
 		{"cc edited to external", draftMsg(func(m *domain.RawMessage) { m.Cc = []domain.Address{{Address: "x@evil.com"}} }), nil, 6},
 		{"secret added", draftMsg(func(m *domain.RawMessage) { m.Body.Content = "AKIA123" }), nil, 6},
 		{"secret in html draft", draftMsg(func(m *domain.RawMessage) {

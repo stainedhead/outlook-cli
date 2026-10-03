@@ -239,7 +239,7 @@ func (c *Client) GetMessage(ctx context.Context, id string, wantHeaders bool) (d
 	if err := requireID("message", id); err != nil {
 		return domain.RawMessage{}, err
 	}
-	sel := summarySelect + ",body,ccRecipients,internetMessageId,parentFolderId"
+	sel := summarySelect + ",body,ccRecipients,bccRecipients,internetMessageId,parentFolderId"
 	if wantHeaders {
 		sel += ",internetMessageHeaders"
 	}

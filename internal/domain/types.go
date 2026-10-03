@@ -148,7 +148,10 @@ type MessageSummary struct {
 // unprocessed. The use case turns it into a Message.
 type RawMessage struct {
 	MessageSummary
-	Cc                []Address
+	Cc []Address
+	// Bcc is filled by the adapter from the message's bccRecipients (only
+	// meaningful for drafts) so a send-time re-validation sees them.
+	Bcc               []Address
 	Body              RawBody
 	Attachments       []Attachment
 	InternetMessageID string
@@ -200,6 +203,9 @@ type Reply struct {
 	MessageID string
 	// Body is plain text, footer already applied.
 	Body string
+	// InternetHeaders are the X-Agent-* headers. ASSUMPTION(unverified against
+	// a real tenant): sent in the reply call's "message" parameter.
+	InternetHeaders []Header
 }
 
 // Draft identifies a saved draft.

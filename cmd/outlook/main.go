@@ -28,6 +28,7 @@ func main() {
 func deps() cli.Deps {
 	return cli.Deps{
 		NewCommands: buildApp,
+		Selftest:    selftestFor(prodConfig()),
 		Build:       cli.BuildInfo{Version: version, Commit: commit, Date: date},
 		Stdin:       os.Stdin,
 		Stdout:      os.Stdout,

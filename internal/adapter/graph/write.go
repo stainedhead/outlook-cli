@@ -17,7 +17,12 @@ type sendMailDTO struct {
 }
 
 type replyDTO struct {
-	Comment string `json:"comment"`
+	Message *replyMessageDTO `json:"message,omitempty"`
+	Comment string           `json:"comment"`
+}
+
+type replyMessageDTO struct {
+	InternetMessageHeaders []headerDTO `json:"internetMessageHeaders"`
 }
 
 type moveDTO struct {
@@ -84,7 +89,7 @@ func (c *Client) ReplyToSender(ctx context.Context, r domain.Reply) error {
 	if err := requireID("message", r.MessageID); err != nil {
 		return domain.NotSent(err)
 	}
-	return c.writeCall(ctx, http.MethodPost, c.meURL("", "messages", seg(r.MessageID), "reply"), replyDTO{Comment: r.Body}, nil)
+	return c.writeCall(ctx, http.MethodPost, c.meURL("", "messages", seg(r.MessageID), "reply"), replyBody(r), nil)
 }
 
 // SetRead sets the isRead flag.
@@ -118,4 +123,19 @@ func (c *Client) MoveMessage(ctx context.Context, messageID, folderID string) (s
 		return "", domain.NewGeneral("graph returned a moved message without an id")
 	}
 	return out.ID, nil
+}
+
+// replyBody builds the reply request. ASSUMPTION(unverified against a real
+// tenant): the reply action accepts a "message" parameter carrying
+// internetMessageHeaders next to "comment".
+func replyBody(r domain.Reply) replyDTO {
+	d := replyDTO{Comment: r.Body}
+	if len(r.InternetHeaders) > 0 {
+		m := &replyMessageDTO{}
+		for _, h := range r.InternetHeaders {
+			m.InternetMessageHeaders = append(m.InternetMessageHeaders, headerDTO{Name: h.Name, Value: h.Value})
+		}
+		d.Message = m
+	}
+	return d
 }

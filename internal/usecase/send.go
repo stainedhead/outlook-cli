@@ -317,14 +317,15 @@ func (s *service) reply(ctx context.Context, c *call, r ReplyRequest) (domain.Se
 	}
 	base := domain.SendResult{IdempotencyKey: r.IdempotencyKey, Rendered: msg, Decision: dec}
 	// ASSUMPTION(unverified against a real tenant): the reply endpoint builds
-	// the subject, recipients and quoted thread itself, so only the body
-	// (footer included) is ours; prefix and X-Agent-* headers cannot be set.
+	// the subject, recipients and quoted thread itself, so the body (footer
+	// included) and X-Agent-* headers (message.internetMessageHeaders) are
+	// ours; the subject prefix cannot be set.
 	return s.dispatch(ctx, c, p, dispatchArgs{
 		kind: "reply:" + r.MessageID, dryRun: r.DryRun, key: r.IdempotencyKey,
 		msg:  domain.OutgoingMessage{To: rc.To, Body: body},
 		base: base,
 		send: func() (string, error) {
-			return "", s.d.Writer.ReplyToSender(ctx, domain.Reply{MessageID: r.MessageID, Body: body})
+			return "", s.d.Writer.ReplyToSender(ctx, domain.Reply{MessageID: r.MessageID, Body: body, InternetHeaders: msg.InternetHeaders})
 		},
 		draft: func() (string, error) {
 			d, e := s.d.Writer.CreateDraft(ctx, msg)
@@ -437,8 +438,7 @@ func (s *service) DeleteDraft(ctx context.Context, draftID string) error {
 // SendDraft implements `mail draft send`. The draft is re-read and its
 // recipients, size and content are re-validated against policy.
 //
-// NOTE: domain.RawMessage has no Bcc field, so bcc recipients added to a draft
-// cannot be seen here (see NOTES-ws1.md).
+// Bcc recipients on the draft (RawMessage.Bcc) are subject to the bcc rule.
 func (s *service) SendDraft(ctx context.Context, r SendDraftRequest) (res domain.SendResult, err error) {
 	err = s.exec(ctx, domain.VerbSend, "mail.draft.send", func(c *call) error {
 		var e error
@@ -465,7 +465,7 @@ func (s *service) sendDraft(ctx context.Context, c *call, r SendDraftRequest) (d
 	for _, part := range []struct {
 		src []domain.Address
 		dst *[]domain.Address
-	}{{raw.To, &rc.To}, {raw.Cc, &rc.Cc}} {
+	}{{raw.To, &rc.To}, {raw.Cc, &rc.Cc}, {raw.Bcc, &rc.Bcc}} {
 		for _, a := range part.src {
 			na, e := domain.ParseAddress(a.Address)
 			if e != nil {
@@ -482,7 +482,7 @@ func (s *service) sendDraft(ctx context.Context, c *call, r SendDraftRequest) (d
 	}
 	subject := oneLine(raw.Subject)
 	body, _ := s.convertBody(p, raw.Body, maxRawBodyBytes)
-	dec := p.EvalSend(domain.SendInput{Recipients: rc, Body: body.Text})
+	dec := p.EvalSend(domain.SendInput{Recipients: rc, BccRequested: len(rc.Bcc) > 0, Body: body.Text})
 	c.setDecision(dec)
 	// A draft that needs a human (external, draft_only) is never sent by the agent.
 	if dec.Mode == domain.DecisionDeny || dec.Mode == domain.DecisionDraftOnly {
@@ -492,7 +492,7 @@ func (s *service) sendDraft(ctx context.Context, c *call, r SendDraftRequest) (d
 		return domain.SendResult{}, err
 	}
 	msg := domain.OutgoingMessage{
-		To: rc.To, Cc: rc.Cc, Subject: subject, Body: body.Text,
+		To: rc.To, Cc: rc.Cc, Bcc: rc.Bcc, Subject: subject, Body: body.Text,
 		InternetHeaders: domain.AgentHeaders(s.d.Run.AgentID, s.d.Run.RunID, r.IdempotencyKey),
 	}
 	base := domain.SendResult{IdempotencyKey: r.IdempotencyKey, Rendered: msg, Decision: dec}

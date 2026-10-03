@@ -19,6 +19,16 @@ import (
 // maxPolicyBytes bounds the policy file read.
 const maxPolicyBytes = 1 << 20
 
+// Defaults applied when the file omits a bound. Omitting never widens access:
+// the domain treats a zero bound as "deny" or "unbounded", so the loader
+// resolves it to the PRD section 9 sample values instead.
+const (
+	DefaultMaxWritesPerRun  = 20
+	DefaultMaxBodyBytes     = 16000
+	DefaultSendBodyMaxBytes = 20000
+	DefaultMaxResults       = 100
+)
+
 const (
 	valAllow = "allow"
 	valDeny  = "deny"
@@ -33,8 +43,8 @@ type fileDoc struct {
 	Read            struct {
 		Folders      []string `yaml:"folders"`
 		MaxBodyBytes int      `yaml:"max_body_bytes"`
-		HTMLToText   bool     `yaml:"html_to_text"`
-		DefangLinks  bool     `yaml:"defang_links"`
+		HTMLToText   *bool    `yaml:"html_to_text"`
+		DefangLinks  *bool    `yaml:"defang_links"`
 		Attachments  struct {
 			Download   string   `yaml:"download"`
 			AllowTypes []string `yaml:"allow_types"`
@@ -65,8 +75,8 @@ type fileDoc struct {
 		} `yaml:"rate"`
 	} `yaml:"send"`
 	Limits struct {
-		MaxResults      int `yaml:"max_results"`
-		MaxWritesPerRun int `yaml:"max_writes_per_run"`
+		MaxResults      int  `yaml:"max_results"`
+		MaxWritesPerRun *int `yaml:"max_writes_per_run"`
 	} `yaml:"limits"`
 	Audit struct {
 		Path string `yaml:"path"`
@@ -141,10 +151,18 @@ func convert(d fileDoc) (domain.Policy, error) {
 	if d.Limits.MaxResults < 0 {
 		pr.add("limits.max_results must not be negative")
 	}
-	if d.Limits.MaxWritesPerRun < 0 {
+	writes := DefaultMaxWritesPerRun
+	if d.Limits.MaxWritesPerRun != nil {
+		writes = *d.Limits.MaxWritesPerRun
+	}
+	if writes < 0 {
 		pr.add("limits.max_writes_per_run must not be negative")
 	}
-	p.Limits = domain.Limits{MaxResults: d.Limits.MaxResults, MaxWritesPerRun: d.Limits.MaxWritesPerRun}
+	results := d.Limits.MaxResults
+	if results == 0 {
+		results = DefaultMaxResults
+	}
+	p.Limits = domain.Limits{MaxResults: results, MaxWritesPerRun: writes}
 
 	if len(pr) > 0 {
 		return domain.Policy{}, invalid("%s", strings.Join(pr, "; "))
@@ -166,8 +184,11 @@ func convertRead(pr *problems, p *domain.Policy, d fileDoc) {
 		pr.add("read.max_body_bytes must not be negative")
 	}
 	r.MaxBodyBytes = d.Read.MaxBodyBytes
-	r.HTMLToText = d.Read.HTMLToText
-	r.DefangLinks = d.Read.DefangLinks
+	if r.MaxBodyBytes == 0 {
+		r.MaxBodyBytes = DefaultMaxBodyBytes
+	}
+	r.HTMLToText = d.Read.HTMLToText == nil || *d.Read.HTMLToText
+	r.DefangLinks = d.Read.DefangLinks == nil || *d.Read.DefangLinks
 
 	a := d.Read.Attachments
 	hasDetail := len(a.AllowTypes) > 0 || a.MaxBytes != 0 || a.OutDir != ""
@@ -257,6 +278,9 @@ func convertSend(pr *problems, p *domain.Policy, d fileDoc) {
 		pr.add("send.body.max_bytes must not be negative")
 	}
 	s.BodyMaxBytes = d.Send.Body.MaxBytes
+	if s.BodyMaxBytes == 0 {
+		s.BodyMaxBytes = DefaultSendBodyMaxBytes
+	}
 	seen := map[string]bool{}
 	known := map[string]bool{}
 	for _, k := range KnownFilters() {

@@ -351,3 +351,36 @@ func TestProviderContextCancelled(t *testing.T) {
 		t.Fatal("expected ctx error")
 	}
 }
+
+const minimalPolicy = `profile: agent
+mailbox: bot@corp.example.com
+internal_domains: [corp.example.com]
+audit: { path: /var/log/agent-cli/outlook.audit.jsonl }
+`
+
+func TestOmittedBoundsGetSafeDefaults(t *testing.T) {
+	p, err := Parse([]byte(minimalPolicy))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Limits.MaxWritesPerRun != DefaultMaxWritesPerRun || p.Read.MaxBodyBytes != DefaultMaxBodyBytes ||
+		p.Send.BodyMaxBytes != DefaultSendBodyMaxBytes || p.Limits.MaxResults != DefaultMaxResults {
+		t.Fatalf("bounds not defaulted: %+v", p)
+	}
+	if !p.Read.DefangLinks || !p.Read.HTMLToText {
+		t.Fatalf("link defanging and html conversion must default on: %+v", p.Read)
+	}
+	if p.Send.Mode != domain.SendDeny {
+		t.Fatalf("send must default to deny: %v", p.Send.Mode)
+	}
+}
+
+func TestExplicitFalseAndZeroAreHonoured(t *testing.T) {
+	p, err := Parse([]byte(minimalPolicy + "read: { defang_links: false, html_to_text: false }\nlimits: { max_writes_per_run: 0 }\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Read.DefangLinks || p.Read.HTMLToText || p.Limits.MaxWritesPerRun != 0 {
+		t.Fatalf("explicit values overridden: %+v %+v", p.Read, p.Limits)
+	}
+}

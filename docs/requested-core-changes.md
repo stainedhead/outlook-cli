@@ -22,4 +22,13 @@ These come from reading the PRD requirements against the core's documented behav
 |---|---|---|---|---|
 | 10 | `httpx` | PRD AUTH-2 asks for exactly one forced refresh and retry on 401. Confirm the core retries once only and never retries a non-idempotent POST. | Wrap writes so they are never retried; test with an `httptest` server. | Medium |
 | 11 | `selftest` | PRD s11 negative probes (other mailbox returns 403) need a way for a probe to expect a 403 and treat it as a pass. Confirm the core's probe result type can express expected-denial. | Probe code maps 403 to pass inside the adapter. | Low |
-| 12 | `audit` | PRD says no bodies by default; confirm the record type has no free-form field that a caller could fill with content. | Adapter passes metadata only. | Low |
+| 12 | `audit` | PRD says no bodies by default; confirm the record type has no free-form field that a caller could fill with content. | Adapter passes metadata only (confirmed: `audit.Record` has no body field). | Low |
+
+## Added during implementation
+
+| # | Area | Gap in v0.1.0 | Workaround here | Priority |
+|---|---|---|---|---|
+| 13 | `output` | Core output bounding cannot cut an object (`ErrBoundTooSmall`, exit 2 for any list over 32 KiB), and `Meta` has no `next_page_token` (extends item 2). | List commands (`mail list`, `mail search`, `mail draft list`, `folder list`, `attachment list`) emit `data` as a JSON array. The Graph continuation is a final element `{"next_page_token":"..."}`; when output is truncated it is cut too and the caller resumes with `--offset`. A `Meta.next_page_token` would remove this and allow the object form the PRD s10 shows. | Medium |
+| 14 | `audit` | `audit.WithClock` takes the internal `clock.Clock`, which cannot be implemented outside core (extends item 6). | The sink stamps `Record.Timestamp` from `usecase.Clock`. | Low |
+| 15 | `policy` | No standalone "is this file agent-writable" function (extends item 5). | `policyfile` mirrors `policy.Load`'s `access(2)` W_OK check on the file and its directory. | Low |
+| 16 | `httpx` | Item 1 in practice: the 403 vendor code can only come from headers, so the adapter reports the first present of `x-ms-error-code`, `request-id`, `client-request-id` (the last two are correlation ids, not codes). | As stated; unverified. | Medium |

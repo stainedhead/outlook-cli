@@ -43,6 +43,7 @@ type messageDTO struct {
 	From                   *recipientDTO   `json:"from"`
 	ToRecipients           []recipientDTO  `json:"toRecipients"`
 	CcRecipients           []recipientDTO  `json:"ccRecipients"`
+	BccRecipients          []recipientDTO  `json:"bccRecipients"`
 	Subject                string          `json:"subject"`
 	IsRead                 bool            `json:"isRead"`
 	IsDraft                bool            `json:"isDraft"`
@@ -120,6 +121,7 @@ func (m messageDTO) raw() domain.RawMessage {
 	r := domain.RawMessage{
 		MessageSummary:    m.summary(),
 		Cc:                toAddresses(m.CcRecipients),
+		Bcc:               toAddresses(m.BccRecipients),
 		InternetMessageID: m.InternetMessageID,
 		ParentFolderID:    m.ParentFolderID,
 	}

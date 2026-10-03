@@ -240,11 +240,11 @@ func TestAssumedSearchMessages(t *testing.T) {
 
 func TestAssumedGetMessage(t *testing.T) {
 	e := newEnv(t, authtest.Valid, jsonReply(200, `{"id":"M1","subject":"S","body":{"contentType":"text","content":"hello"},
-"ccRecipients":[{"emailAddress":{"address":"c@x.com"}}],"internetMessageId":"<a@b>","parentFolderId":"F1",
+"ccRecipients":[{"emailAddress":{"address":"c@x.com"}}],"bccRecipients":[{"emailAddress":{"address":"b@x.com"}}],"internetMessageId":"<a@b>","parentFolderId":"F1",
 "internetMessageHeaders":[{"name":"Authentication-Results","value":"spf=pass"}],
 "attachments":[{"id":"A1","name":"r.pdf","contentType":"application/pdf","size":12,"isInline":false}]}`))
 	m, err := e.c.GetMessage(ctx, "M=1", true)
-	if err != nil || m.Body.Format != domain.BodyText || m.Body.Content != "hello" || len(m.Cc) != 1 || m.InternetMessageID != "<a@b>" ||
+	if err != nil || m.Body.Format != domain.BodyText || m.Body.Content != "hello" || len(m.Cc) != 1 || len(m.Bcc) != 1 || m.InternetMessageID != "<a@b>" ||
 		m.ParentFolderID != "F1" || len(m.InternetHeaders) != 1 || m.InternetHeaders[0].Name != "Authentication-Results" ||
 		len(m.Attachments) != 1 || m.Attachments[0].Size != 12 || m.Attachments[0].Downloadable {
 		t.Fatalf("%+v %v", m, err)
