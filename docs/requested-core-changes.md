@@ -13,3 +13,13 @@ Gaps found while building `outlook` against `agent-cli-core v0.1.0`. The core is
 | 7 | `auth` | No real daemon adapter (known; waits for `agent-okta-d` `pkg/client`). | `newDaemonClient()` stub in `cmd/outlook` returns `*auth.UnreachableError` (exit 3). | Known |
 | 8 | `audit` | `Record` has no field for the deciding rule id. | Encode as `PolicyDecision` = `deny:<rule-id>`. | Low |
 | 9 | `docgen` | `CommandTree.Commands` is flat. | Nested commands are named with a space (`mail send`). | Low |
+
+## Additional gaps seen when reading the core against the PRD (docs-skeleton review)
+
+These come from reading the PRD requirements against the core's documented behaviour, not from running code. Confirm each when the adapters are implemented and move it to the table above or delete it.
+
+| # | Area | Possible gap | Working assumption | Priority |
+|---|---|---|---|---|
+| 10 | `httpx` | PRD AUTH-2 asks for exactly one forced refresh and retry on 401. Confirm the core retries once only and never retries a non-idempotent POST. | Wrap writes so they are never retried; test with an `httptest` server. | Medium |
+| 11 | `selftest` | PRD s11 negative probes (other mailbox returns 403) need a way for a probe to expect a 403 and treat it as a pass. Confirm the core's probe result type can express expected-denial. | Probe code maps 403 to pass inside the adapter. | Low |
+| 12 | `audit` | PRD says no bodies by default; confirm the record type has no free-form field that a caller could fill with content. | Adapter passes metadata only. | Low |
