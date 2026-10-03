@@ -1,0 +1,25 @@
+# Binaries
+/bin/
+/dist/
+/outlook
+*.exe
+*.test
+*.out
+
+# Coverage
+coverage.txt
+coverage.html
+
+# Go workspace
+go.work
+go.work.sum
+
+# Local config and secrets
+.env
+*.pem
+*.key
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
