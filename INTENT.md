@@ -28,7 +28,9 @@ agent host:  harness (Hermes / CLI) in a container
 
 For mail, the agent's identity is its own Entra user. The daemon holds the agent's delegated refresh
 token (enrolled once by a human) and serves short-lived Graph tokens; the agent never reads a
-long-lived secret. Server-side controls (Exchange mail flow, Conditional Access) are the real
+long-lived secret. Okta does not gate Graph directly: access is gated by the Entra user's state plus
+the daemon holding the refresh token behind an Okta-federated role, so disabling the Entra user and
+disabling the Okta app are both part of the kill switch (`agent-okta-d-PRD.md` §13). Server-side controls (Exchange mail flow, Conditional Access) are the real
 authorization; this CLI's policy is a guardrail on top.
 
 ## Where this fits
@@ -47,14 +49,14 @@ Root set: [agentic-teams](https://github.com/stainedhead/agentic-teams). Details
 - **No acting as anyone else.** Only `/me` is addressed, there is no mailbox parameter, and no
   `.Shared` scopes are consented, so a compromised or manipulated agent cannot reach other mailboxes.
 - **Controlled egress.** Recipients, volume and content leaving the mailbox are limited server-side
-  (mail flow) and client-side (policy). Delegated scopes do not restrict recipients, so the mail-flow
-  layer is part of the product.
+  (mail flow) and client-side (policy). Mailbox scoping does not restrict recipients (PRD §5), so the
+  mail-flow layer is part of the product.
 - **Inbound content marked untrusted** before it reaches the model.
 - **Attributable, idempotent sends**: agent id in header and footer, an audit log, safe retries.
 
 ## Non-goals
 - Reading **people's** mailboxes on their behalf, or any human mode (people use Outlook itself).
-- Forwarding, inbox rules, delegation, mailbox settings, contacts, permanent deletion, send-on-behalf.
+- Forwarding, inbox rules, delegation, mailbox settings, contacts and permanent deletion.
 - Calendar writes (calendar read is a later, P2 item).
 - Issuing or storing credentials, or running the Okta/Entra setup: that is `agent-okta-d` plus the
   tenant admins' work.
