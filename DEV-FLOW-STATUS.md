@@ -1,9 +1,9 @@
 # Dev-Flow Status: outlook-cli
 
 - PRD: outlook-cli-PRD.md
-- Spec: specs/261003-outlook-cli
+- Spec: specs/archive/261003-outlook-cli (fixes: specs/261003-outlook-cli-auto-review)
 - Branch: feat/outlook-cli
-- Review PRD: outlook-cli-auto-review-PRD.md
+- Review PRD: specs/261003-outlook-cli-auto-review/outlook-cli-auto-review-PRD.md
 - Process Start: 2026-10-03T23:20:20Z
 - Process End:
 - Total:
@@ -16,8 +16,8 @@
 | 4 | Documentation and User Docs | Complete | 2026-10-03T23:46:00Z | 2026-10-03T23:50:00Z | 4 |
 | 5 | Code and Design Review | Complete | 2026-10-03T23:50:00Z | 2026-10-03T23:54:29Z | 4 |
 | 6 | Prepare Review PRD | Complete | 2026-10-03T23:54:29Z | 2026-10-03T23:58:00Z | 4 |
-| 7 | Archive Original Spec | Pending | | | |
-| 8 | Spec Review Fixes | Pending | | | |
+| 7 | Archive Original Spec | Complete | 2026-10-03T23:57:01Z | 2026-10-03T23:57:01Z | 1 |
+| 8 | Spec Review Fixes | Complete | 2026-10-03T23:57:01Z | 2026-10-03T23:57:01Z | 1 |
 | 9 | Implement Review Fixes | Pending | | | |
 | 10 | Archive Fixes Spec | Pending | | | |
 | 11 | Final Quality Pass | Pending | | | |
