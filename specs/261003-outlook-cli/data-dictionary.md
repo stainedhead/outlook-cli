@@ -1,0 +1,2 @@
+# Data Dictionary: outlook-cli
+Entities: Message, MessageSummary, Folder, Attachment, Draft, Address. Value objects: SenderTrust (internal|external|unknown), Link (text,url,domain), Untrusted[T], IdempotencyKey, Policy (PRD section 9 schema). Interfaces (ports): MailGateway, Ledger, PolicyProvider, Auditor, Clock. Enumerations: external mode (deny|draft_only|allow), send mode (allow|dry_run_only|deny). API types: Graph request/response DTOs live only in the graph adapter. [Fields TBD during implementation]

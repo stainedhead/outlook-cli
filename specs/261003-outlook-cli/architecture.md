@@ -1,0 +1,2 @@
+# Architecture: outlook-cli (2026-10-03) - Status: Draft
+Overview, layers and the daemon stub rule are in spec.md section 6. Layers: domain <- usecase <- adapters (graph, ledger, cli, policyfile, auditlog) <- cmd/outlook (composition). Data flow: CLI -> usecase -> policy check -> gateway port -> Graph -> envelope output + audit. Sequence diagrams, integration points, ADRs: [TBD during implementation; ADR for daemon stub in docs/adr].
