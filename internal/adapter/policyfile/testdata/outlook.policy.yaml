@@ -1,0 +1,28 @@
+# Sample client-side policy (PRD section 9). Install as
+# /etc/agent-cli/outlook.policy.yaml, root-owned, read-only for the agent user.
+profile: agent
+mailbox: agent-sdlc-reviewer-01@corp.example.com     # the only mailbox the CLI will address
+internal_domains: [corp.example.com]
+read:
+  folders: [inbox, Processed]
+  max_body_bytes: 16000
+  html_to_text: true
+  defang_links: true
+  attachments: { download: deny }                    # or: { allow_types: [pdf, txt, md], max_bytes: 2000000, out_dir: /var/agent/quarantine }
+send:
+  mode: allow                                        # allow | dry_run_only | deny
+  recipients:
+    allow_domains: [corp.example.com]
+    allow_addresses: []
+    external: deny                                   # deny | draft_only | allow
+    max_total: 5
+    bcc: deny
+  reply_all: deny
+  attachments: deny
+  subject_prefix: "[agent] "
+  footer: "Automated message from agent {agent_id}. A human owns decisions."
+  body: { max_bytes: 20000 }
+  content_filters: [secret_patterns, classification_markers]
+  rate: { per_hour: 20, per_day: 100 }
+limits: { max_results: 100, max_writes_per_run: 20 }
+audit: { path: /var/log/agent-cli/outlook.audit.jsonl }
