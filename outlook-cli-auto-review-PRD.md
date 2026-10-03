@@ -122,7 +122,7 @@ Nothing was fixed in this review. Every FR below carries acceptance criteria and
 **Acceptance criteria:**
 - File input is read through a bounded reader (same cap as stdin, tested with a fake larger-than-cap reader and `/dev/zero`), failing with usage exit 2 and a message naming the cap.
 - Only regular files are accepted (no devices, FIFOs, directories); symlinks are resolved and the result must be a regular file.
-- Document that `--body-file` can read anything the user can; optionally add policy `send.body_file_roots` and test that a path outside is refused (decide in review; default must not break `--body-file report.txt`).
+- Document that `--body-file` can read anything the user can. Path roots are deferred (see Open Questions OQ-3); `--body-file report.txt` in the current directory keeps working, asserted by an existing-behavior test.
 
 ### FR-R8 (P1) Rate cap is racy, undercounts pending sends and counts drafts as sends
 
@@ -145,7 +145,7 @@ Nothing was fixed in this review. Every FR below carries acceptance criteria and
 **Acceptance criteria:**
 - A draft with empty or missing `From` is refused for send and delete.
 - The fingerprint of recipients, subject and body evaluated is compared with a second read immediately before send (or `If-Match`/changeKey is sent if Graph supports it); a mismatch aborts with a conflict. Document any residual window.
-- Behavior for drafts not created by this tool (no prefix/footer) is decided and documented.
+- A draft without the policy prefix/footer is sent as is (never rewritten) and the dry-run output flags `prefix_applied=false`; a test asserts both.
 
 ### FR-R10 (P2) Attacker-controlled strings are emitted outside `untrusted` wrappers
 
@@ -189,7 +189,7 @@ Nothing was fixed in this review. Every FR below carries acceptance criteria and
 **Acceptance criteria:**
 - Docs (`user-docs/configuration.md`, `docs/technical-details.md`) state plainly that client-side caps are guardrails against mistakes and prompt injection, not against a hostile local user, and name the server-side controls (Exchange transport rules, throttling) as the hard limit.
 - Audit entries for send, reply, draft send and move include recipient count, a hash of the recipient set, and the message or draft id (never subject or body); `HTTPStatus` is populated where known. Test asserts no body, subject or token text appears.
-- Optionally the ledger directory permissions and ownership are verified at open (mode 0700, owned by the current user) with a test.
+- A ledger directory that is not mode 0700 or not owned by the current user is refused at open (exit 1 with a hint), with a test using injected stat.
 
 ### FR-R14 (P2) Test and documentation gaps
 
@@ -203,7 +203,30 @@ Nothing was fixed in this review. Every FR below carries acceptance criteria and
 - A docs pass reconciles every statement about probe, rate caps, page tokens and policy trust with the final behavior; `docs/unverified-assumptions.md` gains the Reply-To, header-filter and tag-character assumptions.
 - A short threat-model table (asset, attacker, control, residual risk) is added to `docs/technical-details.md`.
 
-## 4. Priority Summary
+## 4. Non-Functional Requirements for the Fixes
+
+- Security: every P0/P1 fix fails closed; no new code path logs bodies, tokens or matched secret text; error messages name the rule, not the value.
+- Performance: read commands stay under the existing 50 ms local-overhead budget (excluding network); the ownership check and token signing add no network calls.
+- Reliability: the idempotency guarantee (AC-3, exactly one POST per key) and ledger fail-closed behavior must not regress; concurrency tests run under `-race` and repeat 100 times in CI.
+- Compatibility: exit codes, envelope shape and flag names are unchanged; the page token format change is the only intentional break and is documented in `user-docs/usage.md`.
+- Observability: new denials carry stable rule ids in audit.
+
+## 5. Non-Goals
+
+Rewriting the Graph adapter, adding new commands, adding server-side enforcement, DLP beyond the existing best-effort filters, or changing `agent-cli-core`.
+
+## 6. Dependencies
+
+`agent-cli-core` v0.1.0 (unchanged); a real tenant is needed only to confirm the unverified assumptions (Reply-To, header filtering) and stays in the M0 checklist; the credential daemon stays stubbed.
+
+## 7. Open Questions
+
+- OQ-1 (owner: security lead): should the policy ownership requirement be root-only or any uid different from the agent's (affects container deployments)? Default until answered: uid 0 or a configured uid.
+- OQ-2 (owner: product): are page tokens required to survive across CLI versions? Default: no, signed per-install key, documented break.
+- OQ-3 (owner: product): is a `send.body_file_roots` policy key wanted? Default: not in this phase.
+- OQ-4 (owner: tenant admin, M0): does Graph `/reply` honor Reply-To, and does it accept `internetMessageHeaders` filtering? Fixes assume the worse case until answered.
+
+## 8. Priority Summary
 
 | Priority | Count | FRs |
 |---|---|---|
@@ -211,7 +234,7 @@ Nothing was fixed in this review. Every FR below carries acceptance criteria and
 | P1 | 6 | FR-R3, FR-R4, FR-R5, FR-R6, FR-R7, FR-R8 |
 | P2 | 6 | FR-R9, FR-R10, FR-R11, FR-R12, FR-R13, FR-R14 |
 
-## 5. Positive Observations
+## 9. Positive Observations
 
 - Layering is enforced by `internal/archtest`; Graph DTOs stay in the adapter; core `httpx`, `auth`, `audit`, `output` are used rather than reimplemented.
 - Header and CRLF injection are blocked in subject, addresses, idempotency key and agent headers; recipients are strictly parsed and de-duplicated, bcc and reply-all default deny.
@@ -220,6 +243,6 @@ Nothing was fixed in this review. Every FR below carries acceptance criteria and
 - Error mapping discards Graph response bodies; filter findings carry kind and offset, never matched text; audit never stores bodies.
 - Every endpoint shape is an explicit assumption in code, tests and `docs/unverified-assumptions.md`.
 
-## 6. Out of Scope
+## 10. Out of Scope
 
 Changes to `agent-cli-core` (record in `docs/requested-core-changes.md`), real-tenant verification (M0 checklist), calendar, native Windows.
