@@ -216,7 +216,29 @@ const (
 	LedgerSent LedgerStatus = "sent"
 	// LedgerFailed: the attempt provably failed; the key may be retried.
 	LedgerFailed LedgerStatus = "failed"
+	// LedgerOverCap is returned only by ReserveWithin when a rate window is
+	// full: nothing was reserved or written.
+	LedgerOverCap LedgerStatus = "over_cap"
 )
+
+// LedgerKind distinguishes real sends from draft creations (FR-R8). Only
+// LedgerKindSend entries count toward the rate caps. An entry with an empty
+// kind (written by an older build) is treated as LedgerKindSend.
+type LedgerKind string
+
+// The ledger entry kinds.
+const (
+	LedgerKindSend  LedgerKind = "send"
+	LedgerKindDraft LedgerKind = "draft"
+)
+
+// RateWindow is one rate-cap window for ReserveWithin: the number of send
+// entries (sent or pending) with At >= Since must be below Cap. A Cap <= 0
+// means no limit for that window.
+type RateWindow struct {
+	Since time.Time
+	Cap   int
+}
 
 // LedgerEntry is one record of the idempotency ledger. It never stores bodies:
 // only the key, a fingerprint (hash) of the request, status, time and ids.
@@ -224,6 +246,8 @@ type LedgerEntry struct {
 	Key         string
 	Fingerprint string
 	Status      LedgerStatus
+	// Kind is LedgerKindSend or LedgerKindDraft (empty means send).
+	Kind LedgerKind
 	// At is the time of the last state change (from Clock).
 	At time.Time
 	// RefID is the draft id for draft-only results, empty otherwise.
@@ -243,12 +267,30 @@ type Ledger interface {
 	// except that a LedgerFailed entry is reset to pending and returned with
 	// true so the retry proceeds. Fingerprint comparison is the use case's job.
 	Reserve(ctx context.Context, key, fingerprint string, at time.Time) (LedgerEntry, bool, error)
+	// ReserveWithin is Reserve plus the rate-cap check performed under the same
+	// lock (FR-R8), so concurrent processes cannot both pass the check.
+	//
+	// kind is stored on a newly created entry. For kind LedgerKindSend, counts
+	// has one element per window: the number of LedgerKindSend entries with
+	// status sent OR pending and At >= window.Since (pending counts,
+	// conservatively, because an ambiguous send may have gone out). The key's
+	// own entry is not counted. If an entry for key already exists (and is not
+	// failed) it is returned untouched with created=false and counts nil, as
+	// Reserve does. Otherwise, if any window has Cap > 0 and its count >= Cap,
+	// nothing is written: it returns an entry with Status LedgerOverCap,
+	// created=false and the counts, so the caller can evaluate the policy
+	// (Policy.EvalRate with counts[0]=hour, counts[1]=day). Otherwise it
+	// reserves like Reserve (a failed entry is reset to pending, kind
+	// replaced) and returns created=true with the counts. LedgerKindDraft
+	// reservations ignore windows and return nil counts.
+	ReserveWithin(ctx context.Context, key, fingerprint string, kind LedgerKind, at time.Time, windows []RateWindow) (entry LedgerEntry, created bool, counts []int, err error)
 	// Complete marks the entry sent (refID optional) at time at.
 	Complete(ctx context.Context, key, refID string, at time.Time) error
 	// Fail marks the entry failed (provably not sent) so the key can be retried.
 	Fail(ctx context.Context, key string, at time.Time) error
-	// SentSince counts entries completed as sent at or after since. Sends with
-	// no idempotency key are recorded under a generated key by the use case so
+	// SentSince counts LedgerKindSend entries (status sent or pending, never
+	// draft kind or failed) with At at or after since. Sends with no
+	// idempotency key are recorded under a generated key by the use case so
 	// rate caps see them too.
 	SentSince(ctx context.Context, since time.Time) (int, error)
 }

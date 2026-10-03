@@ -209,6 +209,44 @@ func (l *fakeLedger) Reserve(_ context.Context, key, fp string, at time.Time) (L
 	l.order = append(l.order, key)
 	return *e, true, nil
 }
+func (l *fakeLedger) ReserveWithin(ctx context.Context, key, fp string, kind LedgerKind, at time.Time, windows []RateWindow) (LedgerEntry, bool, []int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.reserveErr != nil {
+		return LedgerEntry{}, false, nil, l.reserveErr
+	}
+	e, exists := l.entries[key]
+	if exists && e.Status != LedgerFailed {
+		return *e, false, nil, nil
+	}
+	var counts []int
+	if kind == LedgerKindSend {
+		over := false
+		for _, w := range windows {
+			n := 0
+			for k, o := range l.entries {
+				if k != key && o.Kind != LedgerKindDraft && (o.Status == LedgerSent || o.Status == LedgerPending) && !o.At.Before(w.Since) {
+					n++
+				}
+			}
+			counts = append(counts, n)
+			if w.Cap > 0 && n >= w.Cap {
+				over = true
+			}
+		}
+		if over {
+			return LedgerEntry{Key: key, Status: LedgerOverCap}, false, counts, nil
+		}
+	}
+	if exists {
+		e.Status, e.Fingerprint, e.At, e.Kind = LedgerPending, fp, at, kind
+		return *e, true, counts, nil
+	}
+	ne := &LedgerEntry{Key: key, Fingerprint: fp, Status: LedgerPending, Kind: kind, At: at}
+	l.entries[key] = ne
+	l.order = append(l.order, key)
+	return *ne, true, counts, nil
+}
 func (l *fakeLedger) Complete(_ context.Context, key, ref string, at time.Time) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
