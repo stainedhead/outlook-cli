@@ -4,7 +4,7 @@ Rules for AI agents and human contributors working in this repository.
 
 ## Project summary
 
-`outlook` is a Go CLI (binary name `outlook`) that lets an autonomous agent read, triage and send corporate email as its own Entra user, from its own mailbox, through Microsoft Graph. It is built on the shared `agent-cli-core` module (defined in `snow-cli-PRD.md` section 5; where that module lives is an open question) and obtains short-lived delegated Graph tokens from the `agent-okta-d` daemon (provider `msgraph`). It calls only `/me/...` endpoints and applies a client-side policy layer (recipients, rate limits, content filters) and an untrusted-content envelope to inbound mail.
+`outlook` is a Go CLI (binary name `outlook`) that lets an autonomous agent read, triage and send corporate email as its own Entra user, from its own mailbox, through Microsoft Graph. It is built on the shared [`agent-cli-core`](https://github.com/stainedhead/agent-cli-core) module (its own repository, specified in its `agent-cli-core-PRD.md`; originated in `snow-cli-PRD.md` section 5) and obtains short-lived delegated Graph tokens from the `agent-okta-d` daemon (provider `msgraph`). It calls only `/me/...` endpoints and applies a client-side policy layer (recipients, rate limits, content filters) and an untrusted-content envelope to inbound mail.
 
 Status: Draft PRD (`outlook-cli-PRD.md`), no implementation yet. The PRD is the source of truth for requirements. Its evidence legend (confirmed vs. unconfirmed claims) must be preserved when copying statements into other docs.
 
@@ -18,7 +18,7 @@ Status: Draft PRD (`outlook-cli-PRD.md`), no implementation yet. The PRD is the 
 | How to install, configure and use | `user-docs/` |
 | Orientation for newcomers | `README.md` |
 
-`INTENT.md` records why the tool exists and how it fits with `agentic-teams`, `agentic-team-w-paperclip`, `agent-okta-d`, `snow-cli` and `teams-cli`. Read it first.
+`INTENT.md` records why the tool exists and how it fits with `agentic-teams`, `agentic-team-w-paperclip`, `agent-okta-d`, `agent-cli-core`, `snow-cli` and `teams-cli`. Read it first.
 
 ## Go layout
 
@@ -38,6 +38,12 @@ Planned layout (create directories only when code needs them):
 - TDD: write a failing test first, make it pass, then refactor. Every behavior change ships with tests. Prefer table-driven tests.
 - Keep functions small, return errors with context, no global mutable state, pass `context.Context` to anything that does I/O.
 - Security-sensitive defaults: deny by default, treat all inbound mail content as untrusted, never add a mailbox parameter or `/users/{id}` calls.
+
+## Dependency on agent-cli-core
+
+- Shared-core changes (envelope, exit codes, bounds, policy, audit, daemon-client wrapper) are made in [agent-cli-core](https://github.com/stainedhead/agent-cli-core), never copied into this repository.
+- Depend on released semver tags only: no pseudo-versions, no `replace` directives on `main`.
+- Do NOT add a `require` for `agent-cli-core` to `go.mod` yet: no release exists. Add it once the core has a tagged release.
 
 ## Verification (run before every commit)
 

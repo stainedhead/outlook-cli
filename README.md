@@ -29,7 +29,7 @@ Non-goals: reading people's mailboxes on their behalf, human mode, forwarding, r
 - **Untrusted-content envelope.** Subject, body, display names and attachment names are marked `untrusted`; HTML is converted to text, links are listed separately and defanged, images are never fetched, attachment download is off by default.
 - **Attribution and idempotency.** Subject prefix and footer naming the agent id, `X-Agent-Id` / `X-Agent-Run` headers ⚠️, a local idempotency ledger, and `--dry-run`.
 - **Deliberately absent:** forward, permanent delete, inbox rules, delegates, mailbox settings, contacts, send-on-behalf, any mailbox parameter.
-- **Shared core.** Builds on the shared `agent-cli-core` module (output envelope, exit codes, bounds, policy, audit) defined in `snow-cli-PRD.md` section 5. **Where `agent-cli-core` lives is an open question and is not decided here.**
+- **Shared core.** Builds on [agent-cli-core](https://github.com/stainedhead/agent-cli-core), its own repository (output envelope, exit codes, bounds, policy, audit), specified in its `agent-cli-core-PRD.md`; it originated in `snow-cli-PRD.md` section 5. Not yet a `go.mod` dependency because no release exists.
 
 Planned commands include `whoami`, `folder list`, `mail list|get|search|send|reply|draft|mark|move`, `attachment list|get` (off by default), `calendar list` (P2) and `selftest`. Full table in PRD section 6.
 
@@ -38,7 +38,8 @@ Planned commands include `whoami`, `folder list`, `mail list|get|search|send|rep
 | Repo | Relationship |
 |---|---|
 | [agent-okta-d](https://github.com/stainedhead/agent-okta-d) | Daemon that holds the refresh token and serves the `msgraph` provider (PRD section 7.5) |
-| [snow-cli](https://github.com/stainedhead/snow-cli) | Defines the shared CLI core (`snow-cli-PRD.md` section 5) |
+| [agent-cli-core](https://github.com/stainedhead/agent-cli-core) | Build dependency: shared CLI core library (envelope, exit codes, bounds, policy, audit) |
+| [snow-cli](https://github.com/stainedhead/snow-cli) | Sibling ServiceNow CLI built on the same core |
 | [teams-cli](https://github.com/stainedhead/teams-cli) | Sibling Microsoft Graph CLI; shares the same delegated token |
 | [outlook-cli](https://github.com/stainedhead/outlook-cli) | This repository |
 | [agentic-team-w-paperclip](https://github.com/stainedhead/agentic-team-w-paperclip) | Related project, part of the set rooted at [agentic-teams](https://github.com/stainedhead/agentic-teams) |

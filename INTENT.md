@@ -40,7 +40,8 @@ Root set: [agentic-teams](https://github.com/stainedhead/agentic-teams). Details
 |---|---|
 | [agentic-team-w-paperclip](https://github.com/stainedhead/agentic-team-w-paperclip) | Provides the harness container images `outlook` runs inside. |
 | [agent-okta-d](https://github.com/stainedhead/agent-okta-d) | Provides the Graph token (provider `msgraph`) and the Okta identity chain. `outlook` never holds credentials itself. |
-| [snow-cli](https://github.com/stainedhead/snow-cli) | Defines the shared CLI core (`agent-cli-core`: envelope, exit codes, policy, audit) that `outlook` is built from. Where that module lives is an open question and is not decided here. |
+| [agent-cli-core](https://github.com/stainedhead/agent-cli-core) | Shared CLI core library (envelope, exit codes, bounds, policy, audit, auth wrapper around the daemon client), its own repository. `outlook` depends on a released tag of it. Chain: agent-okta-d (`pkg/client`) <- agent-cli-core <- snow-cli, outlook-cli, teams-cli. |
+| [snow-cli](https://github.com/stainedhead/snow-cli) | Sibling ServiceNow CLI built on the same core. It no longer defines the core: the core originated in `snow-cli-PRD.md` section 5 and now lives in `agent-cli-core`. |
 | [teams-cli](https://github.com/stainedhead/teams-cli) | Sibling Graph CLI; shares the same delegated token and app registration. |
 | [outlook-cli](https://github.com/stainedhead/outlook-cli) | This repository. |
 

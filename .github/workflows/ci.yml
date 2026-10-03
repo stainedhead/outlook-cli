@@ -1,32 +1,43 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
-  test:
+  ci:
     runs-on: ubuntu-latest
+    env:
+      GOPRIVATE: github.com/stainedhead/*
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Authenticate module fetches with the job token
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+      - name: Download modules
+        run: go mod download
+      - name: gofmt
+        run: |
+          out="$(gofmt -l .)"
+          if [ -n "$out" ]; then
+            echo "gofmt needed on:"
+            echo "$out"
+            exit 1
+          fi
       - name: go vet
         run: go vet ./...
       - name: go test
-        run: go test ./...
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
+        run: go test -race ./...
       - uses: golangci/golangci-lint-action@v8
         with:
           version: latest
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
