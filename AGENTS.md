@@ -8,10 +8,24 @@ Rules for AI agents and human contributors working in this repository.
 
 Status: Draft PRD (`outlook-cli-PRD.md`), no implementation yet. The PRD is the source of truth for requirements. Its evidence legend (confirmed vs. unconfirmed claims) must be preserved when copying statements into other docs.
 
+## Documentation routing
+
+| Kind of change | Update |
+|---|---|
+| Goal, direction or scope shift (including place in the wider set) | `INTENT.md` |
+| New or changed requirement | `outlook-cli-PRD.md` (or the active spec under `specs/`) |
+| Contributor-facing design | `docs/` |
+| How to install, configure and use | `user-docs/` |
+| Orientation for newcomers | `README.md` |
+
+`INTENT.md` records why the tool exists and how it fits with `agentic-teams`, `agentic-team-w-paperclip`, `agent-okta-d`, `snow-cli` and `teams-cli`. Read it first.
+
 ## Go layout
 
 Planned layout (create directories only when code needs them):
 
+- `INTENT.md` - purpose, goals, scope and wider context
+- `outlook-cli-PRD.md` - requirements (source of truth)
 - `cmd/outlook/` - main package, wiring only
 - `internal/` - application packages (domain, use cases, adapters)
 - `docs/` - product and technical documentation for contributors

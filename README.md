@@ -6,6 +6,8 @@
 
 **Evidence legend (from the PRD).** ✅ = confirmed against vendor documentation during research (2026-10-03). ⚠️ = not confirmed in vendor docs (engineering judgment, secondary source, or general Graph knowledge). Graph endpoint shapes in the PRD are from general knowledge of Graph v1.0 and need verification before build.
 
+For the purpose, wider context and scope of this tool, read [`INTENT.md`](INTENT.md).
+
 ## Why
 
 Email is the highest-risk channel an agent can have: inbound mail is untrusted text that may carry instructions, and outbound mail is a data-exfiltration path. `outlook` treats both directions as hostile by default. Goals from the PRD:
