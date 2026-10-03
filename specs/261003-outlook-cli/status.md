@@ -2,8 +2,8 @@
 
 | Phase | Status |
 |---|---|
-| Phase 0 Spec | In Progress |
-| Phase A Foundation | Pending |
+| Phase 0 Spec | Complete |
+| Phase A Foundation | Complete (A1, A2) |
 | Phase B Workstreams WS1-WS5 | Pending |
 | Phase C Integration | Pending |
 
@@ -17,3 +17,4 @@ None.
 
 ## Recent activity
 - 2026-10-03 spec created from PRD.
+- 2026-10-03 Phase A: go.mod requires core v0.1.0 (fetch verified, tidy clean), cmd/outlook version stub, domain types and usecase ports, arch test, Makefile, architecture.md, data-dictionary.md, docs/requested-core-changes.md.

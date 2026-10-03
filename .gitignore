@@ -23,3 +23,8 @@ go.work.sum
 .DS_Store
 .idea/
 .vscode/
+
+# Test and coverage artifacts
+*.cover
+cover.out
+.worktrees/

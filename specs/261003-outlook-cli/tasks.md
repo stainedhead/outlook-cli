@@ -1,9 +1,9 @@
 # Tasks: outlook-cli (2026-10-03) - Status: Planning
-Progress: 0/22 tasks complete
+Progress: 2/22 tasks complete
 
 ## Phase A (lead, serial)
-- A1 go.mod require core v0.1.0; verify fetch (GOPRIVATE). Acceptance: `go mod tidy` clean.
-- A2 Skeleton dirs, ports (`internal/usecase/ports.go`), domain types, arch test, Makefile targets. Depends A1.
+- [x] A1 go.mod require core v0.1.0; verify fetch (GOPRIVATE). Acceptance: `go mod tidy` clean.
+- [x] A2 Skeleton dirs, ports (`internal/usecase/ports.go`), domain types, arch test, Makefile targets. Depends A1.
 ## WS1 domain/usecases (depends A2)
 - W1.1 Policy evaluation (recipients, caps, rate, bcc, reply-all, content filters)
 - W1.2 Untrusted transforms (html-to-text, link defang, sender_trust)
