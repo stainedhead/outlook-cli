@@ -9,7 +9,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strings"
 
@@ -39,7 +38,7 @@ type Deps struct {
 	Stdin    io.Reader
 	Stdout   io.Writer
 	Stderr   io.Writer
-	// ReadFile reads --body-file; defaults to os.ReadFile.
+	// ReadFile reads --body-file; defaults to a bounded, regular-file-only reader (FR-R7).
 	ReadFile func(path string) ([]byte, error)
 }
 
@@ -85,7 +84,7 @@ func Run(ctx context.Context, args []string, d Deps) output.ExitCode {
 		d.Stdin = strings.NewReader("")
 	}
 	if d.ReadFile == nil {
-		d.ReadFile = os.ReadFile
+		d.ReadFile = readBodyFile
 	}
 	r := &runner{Deps: d}
 	return r.run(ctx, args)

@@ -14,8 +14,12 @@ import (
 // bounds. Everything here is pure and treats its input as hostile.
 
 // CleanText removes characters that can hide or reorder text: C0/C1 controls
-// other than newline and tab, bidi overrides and isolates, zero-width and
-// joiner characters, and the BOM. CR is dropped; CRLF becomes LF.
+// other than newline and tab, every Unicode format character (category Cf:
+// bidi controls, zero-width and joiner characters, the BOM, soft hyphen,
+// U+061C, U+180E and the tag block), variation selectors, and the line and
+// paragraph separators U+2028/U+2029. Removing ZWJ splits emoji ZWJ sequences
+// into their component emoji; that is deliberate. CR is dropped; CRLF becomes
+// LF.
 func CleanText(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -26,13 +30,19 @@ func CleanText(s string) string {
 		case r == '\r', r == utf8.RuneError:
 			// dropped (invalid UTF-8 becomes RuneError)
 		case unicode.IsControl(r):
-		case r >= 0x200B && r <= 0x200F, r >= 0x202A && r <= 0x202E, r >= 0x2060 && r <= 0x2064,
-			r >= 0x2066 && r <= 0x2069, r == 0xFEFF, r == 0x00AD:
+		case unicode.Is(unicode.Cf, r), isHiddenRune(r):
 		default:
 			b.WriteRune(r)
 		}
 	}
 	return b.String()
+}
+
+// isHiddenRune reports non-Cf runes that render invisibly or break lines
+// (FR-R5): variation selectors, the unassigned tag-block start and U+2028/9.
+func isHiddenRune(r rune) bool {
+	return r >= 0xFE00 && r <= 0xFE0F || r >= 0xE0100 && r <= 0xE01EF ||
+		r >= 0xE0000 && r <= 0xE007F || r == 0x2028 || r == 0x2029
 }
 
 // TruncateBytes cuts s to at most max bytes on a rune boundary and reports
@@ -396,38 +406,74 @@ func isSpaceByte(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c =
 
 var authResultRe = regexp.MustCompile(`(?i)\b(spf|dkim|dmarc)\s*=\s*([a-z]+)`)
 
-// ParseAuthResults extracts SPF, DKIM and DMARC verdicts from the
-// Authentication-Results headers. It returns nil when none is present. The
-// first verdict seen for each mechanism wins. Advisory only.
+// AuthUnverified is the verdict reported for a mechanism when no
+// Authentication-Results header from a trusted authserv-id supplies one.
+const AuthUnverified = "unverified"
+
+// ParseAuthResults extracts SPF, DKIM and DMARC verdicts from every
+// Authentication-Results header regardless of who wrote it, taking the first
+// verdict per mechanism. A sender can inject such a header, so this is only
+// safe for tests and tools; product code uses ParseAuthResultsFor (FR-R10).
 //
 // ASSUMPTION(unverified against a real tenant): Graph exposes the header via
 // internetMessageHeaders and its format follows RFC 8601.
-func ParseAuthResults(headers []Header) *AuthResults {
+func ParseAuthResults(headers []Header) *AuthResults { return parseAuth(headers, nil, false) }
+
+// ParseAuthResultsFor is the verified form of ParseAuthResults: only headers
+// whose authserv-id (the token before the first ';', RFC 8601) equals one of
+// trustedIDs (case-insensitive) count. A mechanism without a verdict from such
+// a header reports AuthUnverified. It returns nil only when there is no
+// Authentication-Results header at all. With no trustedIDs every verdict is
+// unverified. Advisory only.
+func ParseAuthResultsFor(headers []Header, trustedIDs []string) *AuthResults {
+	return parseAuth(headers, trustedIDs, true)
+}
+
+func parseAuth(headers []Header, trustedIDs []string, verify bool) *AuthResults {
 	var res AuthResults
-	found := false
+	present := false
 	for _, h := range headers {
 		if !strings.EqualFold(h.Name, "Authentication-Results") {
 			continue
+		}
+		present = true
+		if verify {
+			id, _, _ := strings.Cut(h.Value, ";")
+			id = strings.TrimSpace(id)
+			if id == "" || !containsFold(trustedIDs, id) {
+				continue
+			}
 		}
 		for _, m := range authResultRe.FindAllStringSubmatch(h.Value, -1) {
 			v := strings.ToLower(m[2])
 			switch strings.ToLower(m[1]) {
 			case "spf":
 				if res.SPF == "" {
-					res.SPF, found = v, true
+					res.SPF = v
 				}
 			case "dkim":
 				if res.DKIM == "" {
-					res.DKIM, found = v, true
+					res.DKIM = v
 				}
 			case "dmarc":
 				if res.DMARC == "" {
-					res.DMARC, found = v, true
+					res.DMARC = v
 				}
 			}
 		}
 	}
-	if !found {
+	if verify {
+		for _, p := range []*string{&res.SPF, &res.DKIM, &res.DMARC} {
+			if *p == "" {
+				*p = AuthUnverified
+			}
+		}
+		if !present {
+			return nil
+		}
+		return &res
+	}
+	if res.SPF == "" && res.DKIM == "" && res.DMARC == "" {
 		return nil
 	}
 	return &res

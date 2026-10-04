@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -504,5 +507,217 @@ func TestSkillCoversEveryCommandAndIsDeterministic(t *testing.T) {
 	var out bytes.Buffer
 	if code := cli.Run(context.Background(), []string{"skill"}, cli.Deps{Stdout: &out, Build: b}); code != 0 || out.String() != s {
 		t.Errorf("skill command: %d", code)
+	}
+}
+
+// walkUntrusted fails when a string containing marker occurs outside an
+// object that carries "untrusted": true.
+func walkUntrusted(t *testing.T, v any, marker, path string, inUntrusted bool) {
+	t.Helper()
+	switch x := v.(type) {
+	case string:
+		if strings.Contains(x, marker) && !inUntrusted {
+			t.Errorf("raw message text outside untrusted at %s: %q", path, x)
+		}
+	case []any:
+		for i, e := range x {
+			walkUntrusted(t, e, marker, path+"[]"+string(rune('0'+i%10)), inUntrusted)
+		}
+	case map[string]any:
+		u := inUntrusted || x["untrusted"] == true
+		for k, e := range x {
+			walkUntrusted(t, e, marker, path+"."+k, u)
+		}
+	}
+}
+
+func TestMailGetFRR10NoRawTextOutsideUntrusted(t *testing.T) {
+	const m = "IGNORE-PREVIOUS"
+	hostile := domain.Message{
+		MessageSummary: domain.MessageSummary{ID: "m1", Received: at,
+			From:    domain.Address{Address: "a b" + m + "@x.com", Name: m},
+			To:      []domain.Address{{Address: m + "<evil>@x.com"}},
+			Subject: m, SenderTrust: domain.TrustExternal},
+		Cc:          []domain.Address{{Address: "(" + m + ")@x.com"}},
+		Body:        domain.Body{Format: domain.BodyText, Text: m},
+		Links:       []domain.Link{{Text: m, URL: "hxxps://e[.]com/" + m, Domain: m + ".com"}},
+		Attachments: []domain.Attachment{{ID: "a1", Name: m, ContentType: "text/plain; " + m}},
+	}
+	f := &fake{msg: hostile}
+	r := run(t, f, "", "mail", "get", "m1")
+	if r.code != 0 {
+		t.Fatal(r.out)
+	}
+	walkUntrusted(t, r.env["data"], m, "data", false)
+	from := r.env["data"].(map[string]any)["from"].(map[string]any)
+	if a, ok := from["address"].(map[string]any); !ok || a["untrusted"] != true {
+		t.Errorf("non-conforming address must be wrapped: %v", from["address"])
+	}
+	if from["address_flag"] != "non_conforming" {
+		t.Errorf("non-conforming address must be flagged: %v", from)
+	}
+}
+
+func TestMailGetFRR10ConformingAddressStaysPlain(t *testing.T) {
+	d := okData(t, run(t, &fake{msg: domain.Message{MessageSummary: summary()}}, "", "mail", "get", "m1"))
+	from := d["from"].(map[string]any)
+	if from["address"] != "a@x.com" {
+		t.Errorf("%v", from)
+	}
+	if _, flagged := from["address_flag"]; flagged {
+		t.Error("conforming address must not be flagged")
+	}
+}
+
+func TestMailGetFRR10LinkURLAndDomainUntrusted(t *testing.T) {
+	f := &fake{msg: domain.Message{MessageSummary: summary(), Body: domain.Body{Format: domain.BodyNone},
+		Links: []domain.Link{{URL: "hxxps://e[.]com", Domain: "e.com"}}}}
+	l := okData(t, run(t, f, "", "mail", "get", "m1"))["links"].([]any)[0].(map[string]any)
+	for _, k := range []string{"url", "domain"} {
+		if o, ok := l[k].(map[string]any); !ok || o["untrusted"] != true {
+			t.Errorf("link %s not untrusted: %v", k, l[k])
+		}
+	}
+}
+
+func TestFoldersFRR10NameUntrusted(t *testing.T) {
+	r := run(t, &fake{}, "", "folder", "list")
+	if r.code != 0 {
+		t.Fatal(r.out)
+	}
+	f := r.env["data"].([]any)[0].(map[string]any)
+	if o, ok := f["name"].(map[string]any); !ok || o["untrusted"] != true {
+		t.Errorf("folder name not untrusted: %v", f["name"])
+	}
+}
+
+func TestPresentFRR5CleansUntrustedValues(t *testing.T) {
+	s := summary()
+	s.Subject = "hi\U000E0049\u200Bthere"
+	d := okData(t, run(t, &fake{msg: domain.Message{MessageSummary: s}}, "", "mail", "get", "m1"))
+	if v := d["subject"].(map[string]any)["value"]; v != "hithere" {
+		t.Errorf("subject = %q", v)
+	}
+}
+
+// runReal runs with the default (real filesystem) ReadFile.
+func runReal(t *testing.T, f *fake, args ...string) result {
+	t.Helper()
+	var out bytes.Buffer
+	d := cli.Deps{
+		NewCommands: func(context.Context) (usecase.Commands, error) { return f, nil },
+		Stdin:       strings.NewReader(""), Stdout: &out,
+	}
+	code := cli.Run(context.Background(), args, d)
+	r := result{code: code, out: out.String()}
+	_ = json.Unmarshal(out.Bytes(), &r.env)
+	return r
+}
+
+func assertUsage(t *testing.T, r result, wantSub string) {
+	t.Helper()
+	if r.code != 2 {
+		t.Fatalf("want exit 2, got %d: %s", r.code, r.out)
+	}
+	if wantSub != "" && !strings.Contains(r.out, wantSub) {
+		t.Errorf("message should contain %q: %s", wantSub, r.out)
+	}
+}
+
+func TestBodyFileFRR7RegularFileInCwdStillWorks(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.WriteFile("report.txt", []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := &fake{}
+	r := runReal(t, f, "mail", "draft", "create", "--to", "a@x.com", "--subject", "s", "--body-file", "report.txt")
+	if r.code != 0 {
+		t.Fatalf("%s", r.out)
+	}
+	if f.got.(usecase.DraftRequest).Body != "hello" {
+		t.Errorf("%+v", f.got)
+	}
+}
+
+func TestBodyFileFRR7RejectsOversizeFile(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "big.txt")
+	if err := os.WriteFile(p, bytes.Repeat([]byte("a"), 4<<20+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := runReal(t, &fake{}, "mail", "draft", "create", "--to", "a@x.com", "--subject", "s", "--body-file", p)
+	assertUsage(t, r, "4 MiB")
+}
+
+func TestBodyFileFRR7AcceptsExactlyCap(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "cap.txt")
+	if err := os.WriteFile(p, bytes.Repeat([]byte("a"), 4<<20), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := runReal(t, &fake{}, "mail", "draft", "create", "--to", "a@x.com", "--subject", "s", "--body-file", p)
+	if r.code != 0 {
+		t.Fatalf("%s", r.out[:min(len(r.out), 300)])
+	}
+}
+
+func TestBodyFileFRR7RejectsInjectedOversizeRead(t *testing.T) {
+	var out bytes.Buffer
+	d := cli.Deps{
+		NewCommands: func(context.Context) (usecase.Commands, error) { return &fake{}, nil },
+		Stdout:      &out,
+		ReadFile:    func(string) ([]byte, error) { return make([]byte, 4<<20+1), nil },
+	}
+	if code := cli.Run(context.Background(), []string{"mail", "draft", "create", "--to", "a@x.com", "--subject", "s", "--body-file", "x"}, d); code != 2 {
+		t.Fatalf("code %d: %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "4 MiB") {
+		t.Error(out.String())
+	}
+}
+
+func TestBodyFileFRR7RejectsNonRegular(t *testing.T) {
+	args := func(p string) []string {
+		return []string{"mail", "draft", "create", "--to", "a@x.com", "--subject", "s", "--body-file", p}
+	}
+	assertUsage(t, runReal(t, &fake{}, args("/dev/zero")...), "regular file")
+	assertUsage(t, runReal(t, &fake{}, args(t.TempDir())...), "regular file")
+	fifo := filepath.Join(t.TempDir(), "fifo")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Skip("mkfifo unavailable")
+	}
+	assertUsage(t, runReal(t, &fake{}, args(fifo)...), "regular file")
+	assertUsage(t, runReal(t, &fake{}, args(filepath.Join(t.TempDir(), "missing"))...), "cannot read")
+}
+
+func TestBodyFileFRR7SymlinkResolvesToRegularFile(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real.txt")
+	if err := os.WriteFile(real, []byte("via link"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link.txt")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	f := &fake{}
+	r := runReal(t, f, "mail", "draft", "create", "--to", "a@x.com", "--subject", "s", "--body-file", link)
+	if r.code != 0 || f.got.(usecase.DraftRequest).Body != "via link" {
+		t.Fatalf("%s", r.out)
+	}
+	devLink := filepath.Join(dir, "zero")
+	if err := os.Symlink("/dev/zero", devLink); err != nil {
+		t.Fatal(err)
+	}
+	assertUsage(t, runReal(t, &fake{}, "mail", "draft", "create", "--to", "a@x.com", "--subject", "s", "--body-file", devLink), "regular file")
+}
+
+func TestBodyStdinFRR7StillBounded(t *testing.T) {
+	var out bytes.Buffer
+	d := cli.Deps{
+		NewCommands: func(context.Context) (usecase.Commands, error) { return &fake{}, nil },
+		Stdin:       bytes.NewReader(bytes.Repeat([]byte("a"), 4<<20+10)), Stdout: &out,
+	}
+	if code := cli.Run(context.Background(), []string{"mail", "draft", "create", "--to", "a@x.com", "--subject", "s", "--body-file", "-"}, d); code != 2 {
+		t.Fatalf("stdin over cap must be refused, code %d", code)
 	}
 }

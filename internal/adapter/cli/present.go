@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"regexp"
 	"time"
 
 	"github.com/stainedhead/agent-cli-core/output"
@@ -8,9 +9,11 @@ import (
 	"github.com/stainedhead/outlook-cli/internal/usecase"
 )
 
-// The presenter marks free text written by other people as untrusted:
-// Message.Subject, Message.Body.Text, Address.Name, Attachment.Name, Link.Text.
-// Ids, addresses, dates, sizes and folder names we configured stay plain.
+// The presenter marks everything derived from sender or tenant content as
+// untrusted: Subject, Body.Text, Address.Name, Attachment.Name, Link.Text,
+// Link.URL, Link.Domain, folder names, and any address or content type that is
+// not well formed (FR-R10). Every wrapped value passes through CleanText
+// (FR-R5). Ids, well-formed addresses, dates and sizes stay plain.
 
 type obj = map[string]any
 
@@ -25,11 +28,17 @@ func untrusted(value, author string, at time.Time) output.Untrusted {
 	if !at.IsZero() {
 		at = at.UTC()
 	}
-	return output.Untrusted{Value: value, Author: author, Timestamp: at}
+	return output.Untrusted{Value: domain.CleanText(value), Author: author, Timestamp: at}
 }
 
 func presentAddr(a domain.Address, at time.Time) obj {
-	o := obj{"address": a.Address}
+	o := obj{}
+	if _, err := domain.ParseAddress(a.Address); err != nil {
+		o["address"] = untrusted(a.Address, a.Address, at)
+		o["address_flag"] = "non_conforming"
+	} else {
+		o["address"] = a.Address
+	}
 	if a.Name != "" {
 		o["name"] = untrusted(a.Name, a.Address, at)
 	}
@@ -85,7 +94,10 @@ func presentMessage(m domain.Message) obj {
 	o["body"] = body
 	links := make([]obj, 0, len(m.Links))
 	for _, l := range m.Links {
-		lo := obj{"url": l.URL, "domain": l.Domain}
+		lo := obj{
+			"url":    untrusted(l.URL, m.From.Address, m.Received),
+			"domain": untrusted(l.Domain, m.From.Address, m.Received),
+		}
 		if l.Text != "" {
 			lo["text"] = untrusted(l.Text, m.From.Address, m.Received)
 		}
@@ -102,9 +114,20 @@ func presentMessage(m domain.Message) obj {
 func presentAttachment(a domain.Attachment, author string) obj {
 	return obj{
 		"id": a.ID, "name": untrusted(a.Name, author, time.Time{}),
-		"content_type": a.ContentType, "size": a.Size,
+		"content_type": presentContentType(a.ContentType, author), "size": a.Size,
 		"is_inline": a.IsInline, "downloadable": a.Downloadable,
 	}
+}
+
+var contentTypeRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$`)
+
+// presentContentType leaves a bare type/subtype token plain and wraps anything
+// else (parameters, prose) as untrusted.
+func presentContentType(ct, author string) any {
+	if ct == "" || contentTypeRe.MatchString(ct) {
+		return ct
+	}
+	return untrusted(ct, author, time.Time{})
 }
 
 func presentAttachments(as []domain.Attachment, author string) []obj {
@@ -116,7 +139,7 @@ func presentAttachments(as []domain.Attachment, author string) []obj {
 }
 
 func presentFolder(f domain.Folder) obj {
-	return obj{"id": f.ID, "name": f.Name, "well_known": string(f.WellKnown), "unread": f.UnreadCount, "total": f.TotalCount}
+	return obj{"id": f.ID, "name": untrusted(f.Name, "", time.Time{}), "well_known": string(f.WellKnown), "unread": f.UnreadCount, "total": f.TotalCount}
 }
 
 func presentFolders(fs []domain.Folder) []obj {
