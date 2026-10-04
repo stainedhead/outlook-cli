@@ -2,7 +2,7 @@
 
 Output below is JSON shown across several lines for readability; the tool prints one line. Values are fake (`corp.example.com`, `AAMk...`).
 
-**Provenance.** Error examples were captured from the built binary. Success examples are shaped from the code's output structure; they have not been captured from a live mailbox, because no command can reach Graph in this version (the credential daemon client is deferred, see [Getting started](getting-started.md#current-limitations)). Field values inside Graph-derived data depend on unverified Graph behaviour.
+**Provenance.** Error examples were captured from the built binary. Success examples are shaped from the code's output structure; they have not been captured from a live mailbox, because they have not been run against a live daemon and mailbox (see [Getting started](getting-started.md#current-limitations)). Field values inside Graph-derived data depend on unverified Graph behaviour.
 
 Every command takes `--format json|table|text`, `--output-max-bytes N`, `--offset N`. Run `outlook <command> --help` for usage and examples.
 
@@ -147,7 +147,7 @@ $ outlook bogus
 $ outlook whoami        # policy missing
 {"ok":false,"error":{"code":"validation","message":"policy: cannot read /etc/agent-cli/outlook.policy.yaml","hint":"fix the policy file (see the sample policy in the user docs); a policy that cannot be loaded blocks every command"}}   exit 9
 
-$ outlook whoami        # policy fine, daemon client not built
+$ outlook whoami        # policy fine, no daemon listening
 {"ok":false,"error":{"code":"auth","message":"credential daemon unreachable at socket \"/run/agent-okta-d/agent-okta-d.sock\": the agent-okta-d service may not be running","hint":"..."}}   exit 3
 ```
 

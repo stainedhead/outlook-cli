@@ -9,7 +9,16 @@ $ outlook whoami
 {"ok":false,"error":{"code":"auth","message":"credential daemon unreachable at socket \"/run/agent-okta-d/agent-okta-d.sock\": the agent-okta-d service may not be running","hint":"Check that the credential daemon is running and listening on \"/run/agent-okta-d/agent-okta-d.sock\". No fallback credentials are used."}}
 ```
 
-This is what every token-requiring command prints in this version, whether or not a daemon is running. The real client for `agent-okta-d` is deferred: `outlook` currently contains a placeholder that always reports the daemon as unavailable. Setting `AGENT_OKTA_D_SOCKET` only changes the path named in the message. There is no workaround; do not look for other credentials. When the real adapter ships, this error means the socket is missing or the daemon is down: check the service, the socket path (`AGENT_OKTA_D_SOCKET`) and that the agent user may read the socket. If the daemon reports that re-enrollment is required, a human must run `agent-okta-d enroll msgraph`.
+This is what a token-requiring command prints when nothing is listening on the daemon socket (the path in the message is `AGENT_OKTA_D_SOCKET`, or the platform default). Check that the `agent-okta-d` service is running, that the socket path is right and that the agent user may read the socket. There is no workaround; do not look for other credentials.
+
+Other exit 3 causes, with the same envelope shape:
+
+| Message says | Meaning | Fix |
+|---|---|---|
+| a human must run: agent-okta-d enroll msgraph | The daemon needs re-enrollment, or the credential was revoked | A human runs `agent-okta-d enroll msgraph` |
+| not configured in the credential daemon / not authorized | The daemon has no `msgraph` provider for this agent, or does not allow it | Ask the daemon's administrator |
+
+Exit 8 means the daemon is temporarily degraded or asked for a delay; the hint names the wait. Retry after that time.
 
 Commands that still work: `outlook --help`, `outlook <command> --help`, `outlook version`, `outlook skill`.
 

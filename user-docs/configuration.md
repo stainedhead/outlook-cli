@@ -7,9 +7,11 @@
 | `OUTLOOK_POLICY` | `/etc/agent-cli/outlook.policy.yaml` | Path of the policy file. The file it points to must pass the same ownership check as the default |
 | `AGENT_ID` | the policy `profile` | Agent identifier written to audit records, message headers and the footer |
 | `AGENT_RUN_ID` | random `run-<hex>` per process | Run identifier for audit and the `X-Agent-Run` header |
-| `AGENT_OKTA_D_SOCKET` | `/run/agent-okta-d/agent-okta-d.sock` | Socket where the credential daemon is expected (its ownership is not checked yet) |
+| `AGENT_OKTA_D_SOCKET` | platform default: `/var/run/agentd/agentd.sock` (macOS), `/run/agentd/agentd.sock` (Linux) | Unix socket of the `agent-okta-d` credential daemon. Each token request has a 10 second timeout. The socket's ownership is not checked yet |
 
-Only `OUTLOOK_POLICY` could be considered stable; the other names and the default socket path are choices of this build and are unverified against the daemon's own deployment. There are no credentials in the environment or on disk: tokens come only from the daemon.
+Exit 3 on any command that needs a token means the credential daemon cannot give `outlook` a token: it is not running or the socket path is wrong, re-enrollment is needed (a human runs `agent-okta-d enroll msgraph`), the credential was revoked, or the provider is not configured for this agent. Exit 8 means the daemon is temporarily degraded; wait for the hinted time and retry. See [Troubleshooting](troubleshooting.md#exit-3-credential-daemon-unreachable).
+
+Only `OUTLOOK_POLICY` could be considered stable; the other names are choices of this build and unverified against a real deployment. There are no credentials in the environment or on disk: tokens come only from the daemon.
 
 ## Global flags (every command)
 

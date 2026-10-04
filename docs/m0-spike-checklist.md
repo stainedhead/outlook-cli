@@ -20,4 +20,4 @@ Safety rules for every spike: use only the sandbox tenant and the test agent use
 
 Report template for each spike: date, operator, tenant, steps taken, observed result, pass or fail, request ids, follow-up (code change, PRD change or core change).
 
-S-9 depends on the real daemon client, which is deferred (see `deferred.md`).
+S-9 needs a running `agent-okta-d` with an enrolled `msgraph` provider (the adapter itself is wired).

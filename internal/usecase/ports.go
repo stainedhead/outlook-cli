@@ -50,9 +50,9 @@ package usecase
 //
 // auth (tokens). Used by WS3 (composition) and WS2 (as httpx.TokenRefresher).
 //   - Daemon access is auth.DaemonClient {Fetch(ctx, provider), Refresh(ctx,
-//     provider)}. The provider name is "msgraph". There is no real adapter in
-//     core yet, so cmd/outlook defines newDaemonClient() returning a stub
-//     whose Fetch/Refresh return &auth.UnreachableError{Socket: ...} (exit 3).
+//     provider)}. The provider name is "msgraph". cmd/outlook's
+//     newDaemonClient() returns core's auth/oktad adapter (unreachable and
+//     reauth/revoked/access errors exit 3, transient exit 8).
 //   - auth.NewDaemonTokenSource(client, "msgraph", auth.WithRemediation(
 //     "a human must run: agent-okta-d enroll msgraph")) then
 //     auth.NewAuthorizer(src). *auth.Authorizer satisfies httpx.TokenRefresher

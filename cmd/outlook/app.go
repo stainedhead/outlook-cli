@@ -132,7 +132,7 @@ func assemble(ctx context.Context, cfg appConfig) (*app, error) {
 	}
 
 	gcfg := cfg.Graph
-	gcfg.Refresher = auth.NewAuthorizer(src)
+	gcfg.Refresher = auth.NewAuthorizer(daemonSource{src})
 	if cfg.GraphBaseURL != "" {
 		gcfg.BaseURL = cfg.GraphBaseURL
 	}
