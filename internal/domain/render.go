@@ -3,6 +3,7 @@ package domain
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -145,4 +146,30 @@ func Fingerprint(kind string, m OutgoingMessage) string {
 	put(m.Subject)
 	put(m.Body)
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// RecipientHash is a stable hash of the recipient set (lower-cased, sorted,
+// de-duplicated across to, cc and bcc) for audit entries. It reveals no
+// address but lets forensics correlate sends to the same audience (FR-R13).
+func RecipientHash(rc Recipients) string {
+	set := map[string]bool{}
+	for _, list := range [][]Address{rc.To, rc.Cc, rc.Bcc} {
+		for _, a := range list {
+			set[strings.ToLower(strings.TrimSpace(a.Address))] = true
+		}
+	}
+	addrs := make([]string, 0, len(set))
+	for a := range set {
+		addrs = append(addrs, a)
+	}
+	sort.Strings(addrs)
+	sum := sha256.Sum256([]byte(strings.Join(addrs, "\n")))
+	return hex.EncodeToString(sum[:])[:32]
+}
+
+// DraftFingerprint hashes what a draft means at send time: recipients, subject
+// and the ORIGINAL body content (not the converted text), so a second read
+// before sending can detect a change (FR-R9).
+func DraftFingerprint(to, cc, bcc []Address, subject, rawBody string) string {
+	return Fingerprint("draft-state", OutgoingMessage{To: to, Cc: cc, Bcc: bcc, Subject: subject, Body: rawBody})
 }

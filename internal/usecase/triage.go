@@ -27,7 +27,8 @@ func (s *service) MarkRead(ctx context.Context, messageID string, read bool) err
 // Move implements FR-013: only into a policy-readable folder, never into
 // Deleted Items, and only for messages in a readable folder.
 func (s *service) Move(ctx context.Context, r MoveRequest) (res MoveResult, err error) {
-	err = s.exec(ctx, domain.VerbWrite, "mail.move", func(*call) error {
+	err = s.exec(ctx, domain.VerbWrite, "mail.move", func(c *call) error {
+		c.messageID = r.MessageID
 		p, e := s.begin(ctx)
 		if e != nil {
 			return e

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/stainedhead/agent-cli-core/output"
+
 	"github.com/stainedhead/outlook-cli/internal/domain"
 )
 
@@ -37,6 +39,7 @@ func (s *service) send(ctx context.Context, c *call, r SendRequest) (domain.Send
 	if err := domain.ValidateBody(r.Body); err != nil {
 		return domain.SendResult{}, err
 	}
+	c.setRecipients(rc)
 	dec := p.EvalSend(domain.SendInput{
 		Recipients:     rc,
 		BccRequested:   len(r.Bcc) > 0,
@@ -54,7 +57,7 @@ func (s *service) send(ctx context.Context, c *call, r SendRequest) (domain.Send
 		return domain.SendResult{}, err
 	}
 	msg := s.render(p, rc, r.Subject, r.Body, r.IdempotencyKey)
-	base := domain.SendResult{IdempotencyKey: r.IdempotencyKey, Rendered: msg, Decision: dec}
+	base := domain.SendResult{IdempotencyKey: r.IdempotencyKey, Rendered: msg, Decision: dec, PrefixApplied: true}
 	return s.dispatch(ctx, c, p, dispatchArgs{
 		kind: "send", dryRun: r.DryRun, key: r.IdempotencyKey, msg: msg, base: base,
 		send: func() (string, error) { return "", s.d.Writer.SendMail(ctx, msg) },
@@ -157,6 +160,16 @@ func (s *service) checkRate(ctx context.Context, p domain.Policy) error {
 	return domain.ErrFor(p.EvalRate(hour, day))
 }
 
+// rateWindows builds the ReserveWithin windows (hour, day) for a real send.
+func (s *service) rateWindows(p domain.Policy) []RateWindow {
+	r := p.Send.Rate
+	if r.PerHour <= 0 && r.PerDay <= 0 {
+		return nil
+	}
+	now := s.d.Clock.Now()
+	return []RateWindow{{Since: now.Add(-timeHour), Cap: r.PerHour}, {Since: now.Add(-24 * timeHour), Cap: r.PerDay}}
+}
+
 // deliver performs the real operation. isSend distinguishes a real send
 // (counted against the rate cap, probed) from a draft creation.
 func (s *service) deliver(ctx context.Context, c *call, p domain.Policy, a dispatchArgs, isSend bool) (domain.SendResult, error) {
@@ -194,9 +207,18 @@ func (s *service) deliver(ctx context.Context, c *call, p domain.Policy, a dispa
 	}
 	fp := domain.Fingerprint(a.kind, a.msg)
 	now := s.d.Clock.Now()
-	entry, created, err := s.d.Ledger.Reserve(ctx, key, fp, now)
+	kind, windows := LedgerKindDraft, []RateWindow(nil)
+	if isSend {
+		kind, windows = LedgerKindSend, s.rateWindows(p)
+	}
+	// The rate check and the reservation happen under one ledger lock
+	// (FR-R8), counting pending entries too.
+	entry, created, counts, err := s.d.Ledger.ReserveWithin(ctx, key, fp, kind, now, windows)
 	if err != nil {
 		return domain.SendResult{}, ledgerErr(err)
+	}
+	if entry.Status == LedgerOverCap {
+		return domain.SendResult{}, rateErr(p, counts)
 	}
 	if !created {
 		return s.replay(c, a, entry, fp)
@@ -205,24 +227,26 @@ func (s *service) deliver(ctx context.Context, c *call, p domain.Policy, a dispa
 		// Best effort: the attempt provably did nothing, so free the key.
 		_ = s.d.Ledger.Fail(ctx, key, s.d.Clock.Now())
 	}
-	if isSend {
-		if err := s.checkRate(ctx, p); err != nil {
-			release()
-			return domain.SendResult{}, err
-		}
-	}
 	if err := s.countWrite(p); err != nil {
 		release()
 		return domain.SendResult{}, err
 	}
 	if isSend && a.probe && a.key != "" && s.d.Probe != nil {
 		found, perr := s.d.Probe.FindSentByKey(ctx, a.key)
-		if perr != nil {
+		switch {
+		case perr != nil && isCategory(perr, output.CategoryValidation):
+			// FR-R6: Graph rejecting the header filter (HTTP 400) is
+			// inconclusive; rely on the ledger alone.
+			c.warn(warnProbeInconclusive)
+			res.Warnings = append(res.Warnings, warnProbeInconclusive)
+		case perr != nil:
 			release()
 			return domain.SendResult{}, perr
-		}
-		if found {
-			_ = s.d.Ledger.Complete(ctx, key, "", s.d.Clock.Now())
+		case found:
+			if cerr := s.d.Ledger.Complete(ctx, key, "", s.d.Clock.Now()); cerr != nil {
+				c.warn(warnLedgerUpdateFailed)
+				res.Warnings = append(res.Warnings, warnLedgerUpdateFailed)
+			}
 			res.AlreadySent = true
 			c.outcome = outcomeAlreadySent
 			return res, nil
@@ -233,16 +257,35 @@ func (s *service) deliver(ctx context.Context, c *call, p domain.Policy, a dispa
 		if errors.Is(err, domain.ErrNotSent) {
 			release()
 		}
-		// Otherwise the outcome is ambiguous: the entry stays pending and a
-		// later attempt with this key fails closed with a conflict.
+		// Otherwise the outcome is ambiguous: the entry stays pending (and
+		// counts toward the rate cap) and a later attempt with this key
+		// fails closed with a conflict.
 		return domain.SendResult{}, err
 	}
 	// The operation happened. A failed ledger update leaves the entry pending,
 	// which makes any retry of this key fail closed; it must not turn a
-	// completed send into an error exit.
-	_ = s.d.Ledger.Complete(ctx, key, ref, s.d.Clock.Now())
+	// completed send into an error exit, but it is surfaced as a warning.
+	if cerr := s.d.Ledger.Complete(ctx, key, ref, s.d.Clock.Now()); cerr != nil {
+		c.warn(warnLedgerUpdateFailed)
+		res.Warnings = append(res.Warnings, warnLedgerUpdateFailed)
+	}
 	finish(ref)
 	return res, nil
+}
+
+// rateErr turns the counts returned with LedgerOverCap into the policy denial.
+func rateErr(p domain.Policy, counts []int) error {
+	var hour, day int
+	if len(counts) > 0 {
+		hour = counts[0]
+	}
+	if len(counts) > 1 {
+		day = counts[1]
+	}
+	if err := domain.ErrFor(p.EvalRate(hour, day)); err != nil {
+		return err
+	}
+	return domain.NewRateLimited("send rate limit reached")
 }
 
 // replay handles an existing ledger entry for the key.
@@ -253,13 +296,44 @@ func (s *service) replay(c *call, a dispatchArgs, e LedgerEntry, fp string) (dom
 	}
 	if e.Status == LedgerSent {
 		res := a.base
-		res.AlreadySent = true
 		res.DraftID = e.RefID
+		if e.Kind == LedgerKindDraft {
+			res.AlreadyDrafted = true
+			c.outcome = outcomeAlreadyDrafted
+			return res, nil
+		}
+		res.AlreadySent = true
 		c.outcome = outcomeAlreadySent
 		return res, nil
 	}
 	return domain.SendResult{}, domain.NewConflict("an earlier attempt with this idempotency key has an unknown outcome; nothing was sent now").
 		WithHint("check Sent Items before retrying with a new key")
+}
+
+// replyRecipients computes who Graph will actually address a reply to
+// (FR-R4). ASSUMPTION(unverified against a real tenant): POST
+// /me/messages/{id}/reply is addressed to the message's Reply-To when it is
+// set, otherwise to From. Policy is evaluated on those addresses, so a hostile
+// Reply-To cannot move the reply (and its quoted thread) outside the
+// allow-list.
+func replyRecipients(orig domain.RawMessage) ([]domain.Address, error) {
+	src := orig.ReplyTo
+	if len(src) == 0 {
+		src = []domain.Address{orig.From}
+	}
+	var out []domain.Address
+	seen := map[string]bool{}
+	for _, a := range src {
+		na, err := domain.ParseAddress(a.Address)
+		if err != nil {
+			return nil, domain.NewValidation("the message has no usable sender or reply-to address to reply to").WithCause(err)
+		}
+		if !seen[na.Address] {
+			seen[na.Address] = true
+			out = append(out, na)
+		}
+	}
+	return out, nil
 }
 
 // Reply implements FR-010: reply to the sender only.
@@ -294,11 +368,13 @@ func (s *service) reply(ctx context.Context, c *call, r ReplyRequest) (domain.Se
 	if err != nil {
 		return domain.SendResult{}, err
 	}
-	sender, err := domain.ParseAddress(orig.From.Address)
+	c.messageID = r.MessageID
+	to, err := replyRecipients(orig)
 	if err != nil {
-		return domain.SendResult{}, domain.NewValidation("the message has no usable sender address to reply to")
+		return domain.SendResult{}, err
 	}
-	rc := domain.Recipients{To: []domain.Address{sender}}
+	rc := domain.Recipients{To: to}
+	c.setRecipients(rc)
 	dec := p.EvalSend(domain.SendInput{Recipients: rc, Body: r.Body})
 	c.setDecision(dec)
 	if dec.Mode == domain.DecisionDeny {
@@ -315,6 +391,8 @@ func (s *service) reply(ctx context.Context, c *call, r ReplyRequest) (domain.Se
 		Body:            body,
 		InternetHeaders: domain.AgentHeaders(s.d.Run.AgentID, s.d.Run.RunID, r.IdempotencyKey),
 	}
+	// The reply endpoint cannot set the subject, so the policy prefix is not
+	// applied; the footer is.
 	base := domain.SendResult{IdempotencyKey: r.IdempotencyKey, Rendered: msg, Decision: dec}
 	// ASSUMPTION(unverified against a real tenant): the reply endpoint builds
 	// the subject, recipients and quoted thread itself, so the body (footer
@@ -411,7 +489,8 @@ func (s *service) ownDraft(ctx context.Context, p domain.Policy, id string) (dom
 	if !raw.IsDraft {
 		return domain.RawMessage{}, domain.NewValidation("the message is not a draft")
 	}
-	if from := lower(raw.From.Address); from != "" && from != lower(p.Mailbox) {
+	// An empty or missing author is refused too (FR-R9).
+	if from := lower(raw.From.Address); from == "" || from != lower(p.Mailbox) {
 		return domain.RawMessage{}, domain.ErrFor(domain.Decision{Mode: domain.DecisionDeny, RuleID: "write.draft.author",
 			Reason: "the draft was not authored by the agent mailbox"})
 	}
@@ -460,6 +539,64 @@ func (s *service) sendDraft(ctx context.Context, c *call, r SendDraftRequest) (d
 	if err != nil {
 		return domain.SendResult{}, err
 	}
+	c.messageID = r.DraftID
+	rc, err := draftRecipients(raw)
+	if err != nil {
+		return domain.SendResult{}, err
+	}
+	c.setRecipients(rc)
+	if len(rc.To) == 0 {
+		return domain.SendResult{}, domain.NewValidation("the draft has no recipient")
+	}
+	subject := oneLine(raw.Subject)
+	// FR-R3: Graph sends the ORIGINAL draft body, so size and content filters
+	// run on the raw content (markup, attributes, comments, everything past
+	// the display truncation); the converted text is only for display.
+	rawBody := raw.Body.Content
+	body, _ := s.convertBody(p, raw.Body, maxRawBodyBytes)
+	dec := p.EvalSend(domain.SendInput{
+		Recipients:     rc,
+		BccRequested:   len(rc.Bcc) > 0,
+		HasAttachments: raw.HasAttachments || len(raw.Attachments) > 0,
+		Body:           rawBody,
+	})
+	c.setDecision(dec)
+	// A draft that needs a human (external, draft_only) is never sent by the agent.
+	if dec.Mode == domain.DecisionDeny || dec.Mode == domain.DecisionDraftOnly {
+		return domain.SendResult{}, domain.ErrFor(dec)
+	}
+	if err := s.scan(p, raw.Subject, subject, rawBody, body.Text); err != nil {
+		return domain.SendResult{}, err
+	}
+	// The draft is sent exactly as saved (never rewritten): X-Agent-* headers
+	// cannot be added by POST .../send, so none are rendered (FR-R6).
+	msg := domain.OutgoingMessage{To: rc.To, Cc: rc.Cc, Bcc: rc.Bcc, Subject: subject, Body: body.Text}
+	base := domain.SendResult{
+		IdempotencyKey: r.IdempotencyKey, Rendered: msg, Decision: dec,
+		PrefixApplied: s.prefixApplied(p, raw),
+	}
+	want := draftState(raw)
+	return s.dispatch(ctx, c, p, dispatchArgs{
+		kind: "senddraft:" + r.DraftID, dryRun: r.DryRun, key: r.IdempotencyKey, msg: msg, base: base,
+		send: func() (string, error) {
+			// FR-R9: re-read immediately before sending; any change since the
+			// policy evaluation aborts. Residual window: the time between
+			// this read and the POST (Graph offers no If-Match for send).
+			again, e := s.d.Reader.GetMessage(ctx, r.DraftID, false)
+			if e != nil {
+				return "", domain.NotSent(e)
+			}
+			if draftState(again) != want {
+				return "", domain.NotSent(domain.NewConflict("the draft changed after it was checked; nothing was sent").
+					WithHint("review the draft and send it again"))
+			}
+			return "", s.d.Writer.SendDraft(ctx, r.DraftID)
+		},
+	})
+}
+
+// draftRecipients deduplicates and validates the recipients of a draft.
+func draftRecipients(raw domain.RawMessage) (domain.Recipients, error) {
 	var rc domain.Recipients
 	seen := map[string]bool{}
 	for _, part := range []struct {
@@ -469,7 +606,7 @@ func (s *service) sendDraft(ctx context.Context, c *call, r SendDraftRequest) (d
 		for _, a := range part.src {
 			na, e := domain.ParseAddress(a.Address)
 			if e != nil {
-				return domain.SendResult{}, e
+				return domain.Recipients{}, e
 			}
 			if !seen[na.Address] {
 				seen[na.Address] = true
@@ -477,28 +614,33 @@ func (s *service) sendDraft(ctx context.Context, c *call, r SendDraftRequest) (d
 			}
 		}
 	}
-	if len(rc.To) == 0 {
-		return domain.SendResult{}, domain.NewValidation("the draft has no recipient")
+	return rc, nil
+}
+
+// draftState fingerprints everything the policy decision depended on.
+func draftState(raw domain.RawMessage) string {
+	norm := func(in []domain.Address) []domain.Address {
+		out := make([]domain.Address, len(in))
+		for i, a := range in {
+			out[i] = domain.Address{Address: lower(a.Address)}
+		}
+		return out
 	}
-	subject := oneLine(raw.Subject)
-	body, _ := s.convertBody(p, raw.Body, maxRawBodyBytes)
-	dec := p.EvalSend(domain.SendInput{Recipients: rc, BccRequested: len(rc.Bcc) > 0, Body: body.Text})
-	c.setDecision(dec)
-	// A draft that needs a human (external, draft_only) is never sent by the agent.
-	if dec.Mode == domain.DecisionDeny || dec.Mode == domain.DecisionDraftOnly {
-		return domain.SendResult{}, domain.ErrFor(dec)
+	meta := fmt.Sprintf("%s|%v|%v|%d", lower(raw.From.Address), raw.IsDraft, raw.HasAttachments, len(raw.Attachments))
+	return domain.DraftFingerprint(norm(raw.To), norm(raw.Cc), norm(raw.Bcc), raw.Subject+"\x00"+meta, raw.Body.Content)
+}
+
+// prefixApplied reports whether the draft already carries the policy subject
+// prefix and footer (it is never rewritten when it does not).
+func (s *service) prefixApplied(p domain.Policy, raw domain.RawMessage) bool {
+	if pre := p.Send.SubjectPrefix; pre != "" && !strings.HasPrefix(strings.TrimSpace(raw.Subject), strings.TrimSpace(pre)) {
+		return false
 	}
-	if err := s.scan(p, subject, body.Text); err != nil {
-		return domain.SendResult{}, err
+	if p.Send.Footer != "" {
+		f := strings.TrimSpace(strings.TrimPrefix(domain.ComposeBody("", p.Send.Footer, s.d.Run.AgentID), "\n\n-- \n"))
+		if f != "" && !strings.Contains(raw.Body.Content, f) {
+			return false
+		}
 	}
-	msg := domain.OutgoingMessage{
-		To: rc.To, Cc: rc.Cc, Bcc: rc.Bcc, Subject: subject, Body: body.Text,
-		InternetHeaders: domain.AgentHeaders(s.d.Run.AgentID, s.d.Run.RunID, r.IdempotencyKey),
-	}
-	base := domain.SendResult{IdempotencyKey: r.IdempotencyKey, Rendered: msg, Decision: dec}
-	return s.dispatch(ctx, c, p, dispatchArgs{
-		kind: "senddraft:" + r.DraftID, dryRun: r.DryRun, key: r.IdempotencyKey, msg: msg, base: base,
-		send:  func() (string, error) { return "", s.d.Writer.SendDraft(ctx, r.DraftID) },
-		probe: true,
-	})
+	return true
 }

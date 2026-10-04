@@ -184,7 +184,7 @@ func TestSendDraftOnlyWithKeyIsIdempotent(t *testing.T) {
 	req.IdempotencyKey = "dk"
 	for i := 0; i < 2; i++ {
 		res, err := e.cmds.Send(context.Background(), req)
-		if err != nil || res.DraftID != "draft-1" || res.AlreadySent != (i == 1) {
+		if err != nil || res.DraftID != "draft-1" || res.AlreadySent || res.AlreadyDrafted != (i == 1) {
 			t.Fatalf("call %d: res=%+v err=%v", i, res, err)
 		}
 	}
@@ -300,9 +300,6 @@ func TestLedgerFailureFailsClosed(t *testing.T) {
 	}
 	e.l.reserveErr = nil
 	e.l.sentErr = errors.New("unreadable")
-	if _, err = e.cmds.Send(context.Background(), okSend()); exitOf(err) != 1 || len(e.w.sent) != 0 {
-		t.Errorf("rate read failure: %v sent=%d", err, len(e.w.sent))
-	}
 	req := okSend()
 	req.DryRun = true
 	if _, err = e.cmds.Send(context.Background(), req); exitOf(err) != 1 {
@@ -314,7 +311,9 @@ func TestLedgerSentSinceSecondCallFailure(t *testing.T) {
 	e := newEnv(t)
 	e.deps.Ledger = &flakyLedger{fakeLedger: e.l, okCalls: 1}
 	e.rebuild()
-	_, err := e.cmds.Send(context.Background(), okSend())
+	req := okSend()
+	req.DryRun = true
+	_, err := e.cmds.Send(context.Background(), req)
 	mustCat(t, err, 1)
 	if len(e.w.sent) != 0 {
 		t.Error("sent")
@@ -418,8 +417,10 @@ func TestRateDenialFreesReservedKey(t *testing.T) {
 	if _, err := e.cmds.Send(context.Background(), req); exitOf(err) != 8 {
 		t.Fatal("expected rate limit")
 	}
-	if e.l.status("k2") != LedgerFailed {
-		t.Errorf("status = %q, want failed so the key can be retried", e.l.status("k2"))
+	// FR-R8: the over-cap check happens before any reservation, so nothing is
+	// written for the key and it can be retried later.
+	if st := e.l.status("k2"); st != "" {
+		t.Errorf("status = %q, want no entry", st)
 	}
 }
 
@@ -865,8 +866,9 @@ func TestSendDraftRateAndProbe(t *testing.T) {
 	e2 := newEnv(t)
 	e2.probe.found = true
 	e2.addMessage("d1", "f-drafts", draftMsg())
+	// FR-R6: the probe header cannot be applied to a draft send, so it is skipped.
 	res, err := e2.cmds.SendDraft(context.Background(), SendDraftRequest{DraftID: "d1", IdempotencyKey: "k"})
-	if err != nil || !res.AlreadySent || len(e2.w.sentDraf) != 0 {
+	if err != nil || res.AlreadySent || len(e2.w.sentDraf) != 1 || len(e2.probe.keys) != 0 {
 		t.Errorf("probe: res=%+v err=%v", res, err)
 	}
 }
@@ -881,8 +883,8 @@ func TestDeleteDraftOnlyOwnDrafts(t *testing.T) {
 	if err := e.cmds.DeleteDraft(ctx, "d1"); err != nil || len(e.w.deleted) != 1 {
 		t.Fatalf("delete own: %v", err)
 	}
-	if err := e.cmds.DeleteDraft(ctx, "noauthor"); err != nil {
-		t.Errorf("unsent draft with no from: %v", err)
+	if err := e.cmds.DeleteDraft(ctx, "noauthor"); exitOf(err) != 6 {
+		t.Errorf("FR-R9: draft with no from must be refused: %v", err)
 	}
 	if err := e.cmds.DeleteDraft(ctx, "inbox"); exitOf(err) != 9 {
 		t.Errorf("inbox message must not be deletable: %v", err)
@@ -900,7 +902,7 @@ func TestDeleteDraftOnlyOwnDrafts(t *testing.T) {
 	if err := e.cmds.DeleteDraft(ctx, "d1"); err == nil {
 		t.Error("adapter error swallowed")
 	}
-	if len(e.w.deleted) != 2 {
+	if len(e.w.deleted) != 1 {
 		t.Errorf("deleted = %v", e.w.deleted)
 	}
 	e2 := newEnv(t, func(p *domain.Policy) { p.Limits.MaxWritesPerRun = 0 })

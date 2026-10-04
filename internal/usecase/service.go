@@ -20,6 +20,14 @@ const (
 	outcomeDraft       = "draft"
 	outcomeError       = "error"
 	outcomeAlreadySent = "already_sent"
+	// outcomeAlreadyDrafted is a replayed keyed draft creation (FR-R8).
+	outcomeAlreadyDrafted = "already_drafted"
+)
+
+// Warning notes carried in SendResult.Warnings and AuditEntry.Warnings.
+const (
+	warnLedgerUpdateFailed = "ledger_update_failed"
+	warnProbeInconclusive  = "probe=inconclusive"
 )
 
 // service implements Commands. One instance serves one process run: it caches
@@ -45,9 +53,22 @@ func New(d Deps) Commands { return &service{d: d} }
 type call struct {
 	outcome  string
 	decision *domain.Decision
+
+	// Forensic fields (FR-R13): never subject, body or addresses.
+	recipientCount int
+	recipientHash  string
+	messageID      string
+	warnings       []string
 }
 
 func (c *call) setDecision(d domain.Decision) { c.decision = &d }
+
+func (c *call) setRecipients(rc domain.Recipients) {
+	c.recipientCount = rc.Total()
+	c.recipientHash = domain.RecipientHash(rc)
+}
+
+func (c *call) warn(w string) { c.warnings = append(c.warnings, w) }
 
 // exec runs fn and writes exactly one audit entry for it.
 func (s *service) exec(ctx context.Context, verb domain.Verb, resource string, fn func(c *call) error) error {
@@ -63,8 +84,15 @@ func (s *service) exec(ctx context.Context, verb domain.Verb, resource string, f
 		Outcome:        c.outcome,
 		Duration:       s.d.Clock.Now().Sub(start),
 		PolicyDecision: string(domain.DecisionAllow),
+		RecipientCount: c.recipientCount,
+		RecipientHash:  c.recipientHash,
+		MessageID:      c.messageID,
+		Warnings:       c.warnings,
 	}
 	var de *domain.Error
+	if errors.As(err, &de) {
+		e.HTTPStatus = de.HTTPStatus
+	}
 	denied := errors.As(err, &de) && (de.Cat == output.CategoryPolicyDenied || (de.Cat == output.CategoryRateLimited && de.RuleID != ""))
 	switch {
 	case denied && de.RuleID != "":

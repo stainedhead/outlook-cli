@@ -151,7 +151,12 @@ type RawMessage struct {
 	Cc []Address
 	// Bcc is filled by the adapter from the message's bccRecipients (only
 	// meaningful for drafts) so a send-time re-validation sees them.
-	Bcc               []Address
+	Bcc []Address
+	// ReplyTo and Sender are the Reply-To and Sender header addresses (FR-R4).
+	// A reply via Graph is addressed to ReplyTo when it is set (ASSUMPTION,
+	// unverified against a real tenant). Empty when absent.
+	ReplyTo           []Address
+	Sender            Address
 	Body              RawBody
 	Attachments       []Attachment
 	InternetMessageID string
@@ -230,6 +235,18 @@ type SendResult struct {
 	Rendered OutgoingMessage
 	// Decision is the policy decision that applied.
 	Decision Decision
+	// AlreadyDrafted is true when the key replayed an earlier draft creation
+	// (DraftID holds the draft); AlreadySent stays false (FR-R8).
+	AlreadyDrafted bool
+	// PrefixApplied reports whether the policy subject prefix and footer are
+	// on the message that is (or would be) sent. A draft sent via
+	// `draft send` is never rewritten, so it is false when the draft lacks
+	// them (FR-R9).
+	PrefixApplied bool
+	// Warnings are non-fatal notes: a ledger update that failed after a real
+	// send ("ledger_update_failed") or an inconclusive probe
+	// ("probe=inconclusive").
+	Warnings []string
 }
 
 // Page is one page of results. NextPageToken is empty on the last page. The

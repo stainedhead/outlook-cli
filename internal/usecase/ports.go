@@ -339,6 +339,14 @@ type AuditEntry struct {
 	HTTPStatus     int
 	Duration       time.Duration
 	PolicyDecision string // domain.Decision.AuditString()
+	// RecipientCount, RecipientHash and MessageID are set for send, reply,
+	// draft send and move (FR-R13). Never subject, body or addresses.
+	RecipientCount int
+	RecipientHash  string
+	MessageID      string
+	// Warnings are non-fatal notes such as "ledger_update_failed" or
+	// "probe=inconclusive".
+	Warnings []string
 }
 
 // AuditSink records one entry per command. Record returns the error the

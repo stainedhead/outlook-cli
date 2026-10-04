@@ -31,6 +31,11 @@ type fakeReader struct {
 
 	getErr, searchErr, listAttErr, openErr, draftsErr, listMsgErr error
 
+	// onGet, when set, runs after each GetMessage call with the call count so
+	// a test can change a message between two reads (FR-R9).
+	onGet    func(id string, n int)
+	getCalls int
+
 	gotQuery   domain.MessageQuery
 	gotSearch  []domain.SearchQuery
 	gotHeaders bool
@@ -70,6 +75,10 @@ func (r *fakeReader) SearchMessages(_ context.Context, q domain.SearchQuery) (do
 }
 func (r *fakeReader) GetMessage(_ context.Context, id string, h bool) (domain.RawMessage, error) {
 	r.gotHeaders = h
+	r.getCalls++
+	if r.onGet != nil {
+		defer r.onGet(id, r.getCalls)
+	}
 	if r.getErr != nil {
 		return domain.RawMessage{}, r.getErr
 	}
@@ -275,7 +284,7 @@ func (l *fakeLedger) SentSince(_ context.Context, since time.Time) (int, error) 
 	}
 	n := 0
 	for _, e := range l.entries {
-		if e.Status == LedgerSent && !e.At.Before(since) {
+		if e.Kind != LedgerKindDraft && (e.Status == LedgerSent || e.Status == LedgerPending) && !e.At.Before(since) {
 			n++
 		}
 	}

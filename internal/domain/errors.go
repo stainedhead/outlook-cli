@@ -21,7 +21,10 @@ type Error struct {
 	HintMsg string
 	// RuleID is set on policy-denied errors.
 	RuleID string
-	Cause  error
+	// HTTPStatus is the upstream HTTP status when known (0 otherwise); it is
+	// copied into the audit entry (FR-R13).
+	HTTPStatus int
+	Cause      error
 }
 
 // Error implements error.
@@ -41,6 +44,9 @@ func (e *Error) WithHint(h string) *Error { e.HintMsg = h; return e }
 
 // WithCause returns e with its cause set, for chaining.
 func (e *Error) WithCause(c error) *Error { e.Cause = c; return e }
+
+// WithHTTPStatus returns e with the upstream HTTP status recorded.
+func (e *Error) WithHTTPStatus(s int) *Error { e.HTTPStatus = s; return e }
 
 func newErr(c output.Category, msg string) *Error { return &Error{Cat: c, Message: msg} }
 
