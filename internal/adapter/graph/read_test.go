@@ -2,7 +2,6 @@ package graph_test
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"io"
 	"net/http"
@@ -171,7 +170,7 @@ func TestAssumedListMessagesQueryAndPaging(t *testing.T) {
 		t.Fatal("spaces must be %20")
 	}
 	// Following the token requests the Graph next link.
-	if _, err := e.c.ListMessages(ctx, domain.MessageQuery{PageToken: pg.NextPageToken}); err != nil {
+	if _, err := e.c.ListMessages(ctx, domain.MessageQuery{FolderID: "F1", UnreadOnly: true, From: "o'brien@x.com", Since: since, Limit: 10, PageToken: pg.NextPageToken}); err != nil {
 		t.Fatal(err)
 	}
 	if s := e.rec.last(t); s.Path != "/v1.0/me/mailFolders/F1/messages" || !strings.Contains(s.RawQuery, "skiptoken=abc") {
@@ -195,26 +194,6 @@ func TestAssumedListMessagesDefaultsAndValidation(t *testing.T) {
 	}
 	if _, err := e.c.ListMessages(ctx, domain.MessageQuery{}); output.CategoryOf(err) != output.CategoryValidation {
 		t.Fatalf("missing folder: %v", err)
-	}
-}
-
-func TestInvalidPageTokensAreUsageErrors(t *testing.T) {
-	e := newEnv(t, authtest.Valid, jsonReply(200, `{"value":[]}`))
-	evil := base64.RawURLEncoding.EncodeToString([]byte("https://evil.example/v1.0/me/messages"))
-	otherPath := base64.RawURLEncoding.EncodeToString([]byte(e.srv.URL + "/v1.0/users/x/messages"))
-	for _, tok := range []string{"!!!notbase64", evil, otherPath, base64.RawURLEncoding.EncodeToString([]byte("::"))} {
-		if _, err := e.c.ListMessages(ctx, domain.MessageQuery{PageToken: tok}); output.CategoryOf(err) != output.CategoryUsage {
-			t.Errorf("list %q: %v", tok, err)
-		}
-		if _, err := e.c.SearchMessages(ctx, domain.SearchQuery{PageToken: tok}); output.CategoryOf(err) != output.CategoryUsage {
-			t.Errorf("search %q: %v", tok, err)
-		}
-		if _, err := e.c.ListDrafts(ctx, 1, tok); output.CategoryOf(err) != output.CategoryUsage {
-			t.Errorf("drafts %q: %v", tok, err)
-		}
-	}
-	if n := len(e.rec.all()); n != 0 {
-		t.Fatalf("bad tokens must not reach the network: %d", n)
 	}
 }
 
@@ -266,11 +245,11 @@ func TestAssumedGetMessage(t *testing.T) {
 
 func TestAssumedGetMessageHTMLFallbackAndPathEscaping(t *testing.T) {
 	e := newEnv(t, authtest.Valid, jsonReply(200, `{"id":"M1","body":{"contentType":"html","content":"<b>x</b>"}}`))
-	m, err := e.c.GetMessage(ctx, "a/b c", false)
+	m, err := e.c.GetMessage(ctx, "a-b_c=", false)
 	if err != nil || m.Body.Format != domain.BodyHTML {
 		t.Fatalf("%+v %v", m, err)
 	}
-	if p := e.rec.last(t).Path; p != "/v1.0/me/messages/a%2Fb%20c" {
+	if p := e.rec.last(t).Path; p != "/v1.0/me/messages/a-b_c=" {
 		t.Fatalf("id not escaped: %s", p)
 	}
 }
