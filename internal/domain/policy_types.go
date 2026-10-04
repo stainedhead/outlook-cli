@@ -61,7 +61,11 @@ type ReadPolicy struct {
 	MaxBodyBytes int
 	HTMLToText   bool
 	DefangLinks  bool
-	Attachments  AttachmentPolicy
+	// TrustedAuthservIDs are the Authentication-Results authserv-ids whose
+	// SPF/DKIM/DMARC verdicts are reported (FR-R10). Empty means every verdict
+	// is "unverified".
+	TrustedAuthservIDs []string
+	Attachments        AttachmentPolicy
 }
 
 // AttachmentPolicy governs attachment download. The zero value denies.

@@ -3,6 +3,8 @@ package auditlog
 import (
 	"context"
 	"io"
+	"strconv"
+	"strings"
 
 	"github.com/stainedhead/agent-cli-core/audit"
 	"github.com/stainedhead/outlook-cli/internal/domain"
@@ -79,12 +81,35 @@ func (s *Sink) Record(_ context.Context, e usecase.AuditEntry, actionErr error) 
 		Outcome:        e.Outcome,
 		HTTPStatus:     e.HTTPStatus,
 		Duration:       e.Duration,
-		PolicyDecision: e.PolicyDecision,
+		PolicyDecision: foldDecision(e),
 	}
 	if s.cfg.Clock != nil {
 		rec.Timestamp = s.cfg.Clock.Now()
 	}
 	return s.log.Handle(rec, actionErr)
+}
+
+// foldDecision appends the FR-R13 fields to the policy decision as
+// ";key=value" pairs. audit.Record (core v0.1.0) has no extension fields; this
+// keeps them in an existing field until the core grows them. Only counts,
+// hashes, ids and fixed warning tokens are written, never subject, body or
+// addresses.
+func foldDecision(e usecase.AuditEntry) string {
+	var b strings.Builder
+	b.WriteString(e.PolicyDecision)
+	if e.RecipientCount > 0 {
+		b.WriteString(";recipient_count=" + strconv.Itoa(e.RecipientCount))
+	}
+	if e.RecipientHash != "" {
+		b.WriteString(";recipient_hash=" + e.RecipientHash)
+	}
+	if e.MessageID != "" {
+		b.WriteString(";message_id=" + e.MessageID)
+	}
+	if len(e.Warnings) > 0 {
+		b.WriteString(";warnings=" + strings.Join(e.Warnings, ","))
+	}
+	return b.String()
 }
 
 // Close closes the underlying file. Records after Close fail as write errors.

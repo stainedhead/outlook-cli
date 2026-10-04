@@ -307,3 +307,22 @@ func TestExplicitFalseAndZeroAreHonoured(t *testing.T) {
 		t.Fatalf("explicit values overridden: %+v %+v", p.Read, p.Limits)
 	}
 }
+
+func TestFRR10AuthservIDsFromPolicy(t *testing.T) {
+	p, err := Parse([]byte(minimalPolicy + "read: { auth_results_authserv_ids: [mx.corp.example.com, spf.example] }\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Read.TrustedAuthservIDs) != 2 || p.Read.TrustedAuthservIDs[0] != "mx.corp.example.com" {
+		t.Fatalf("%v", p.Read.TrustedAuthservIDs)
+	}
+	for _, bad := range []string{`""`, `"a b"`, `"a;b"`} {
+		if _, err := Parse([]byte(minimalPolicy + "read: { auth_results_authserv_ids: [" + bad + "] }\n")); err == nil {
+			t.Errorf("%s must be rejected", bad)
+		}
+	}
+	d, _ := Parse([]byte(minimalPolicy))
+	if len(d.Read.TrustedAuthservIDs) != 0 {
+		t.Fatal("default must be empty")
+	}
+}

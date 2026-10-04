@@ -387,3 +387,21 @@ func TestContextCancelled(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// FR-R13: every upstream failure carries its HTTP status for the audit record.
+func TestUpstreamStatusOnEveryHTTPFailure(t *testing.T) {
+	for _, code := range []int{400, 401, 403, 404, 409, 429, 500, 503} {
+		code := code
+		e := newEnv(t, authtest.Valid, status(code))
+		_, err := e.c.Me(ctx)
+		if got := domain.UpstreamStatusOf(err); got != code {
+			t.Errorf("%d: UpstreamStatusOf = %d (%v)", code, got, err)
+		}
+		if code != 401 && code != 403 && code != 429 && code != 503 {
+			var de *domain.Error
+			if !errors.As(err, &de) || de.HTTPStatus != code {
+				t.Errorf("%d: domain.Error.HTTPStatus not set: %v", code, err)
+			}
+		}
+	}
+}

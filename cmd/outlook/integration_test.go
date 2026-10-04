@@ -72,6 +72,8 @@ type fakeGraph struct {
 	posts map[string]int // "POST /v1.0/me/sendMail" -> count
 	bodys map[string][]string
 	msgs  map[string]map[string]any
+	// paged makes the inbox listing return one message plus a nextLink.
+	paged bool
 }
 
 func newFakeGraph() *fakeGraph {
@@ -152,6 +154,12 @@ func (g *fakeGraph) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(200, map[string]any{"id": "F-del", "displayName": "Deleted Items"})
 	case strings.HasPrefix(p, "/me/mailFolders/") && !strings.Contains(strings.TrimPrefix(p, "/me/mailFolders/"), "/"):
 		reply(404, map[string]any{"error": map[string]any{"code": "ErrorItemNotFound"}})
+	case p == "/me/mailFolders/F-inbox/messages" && g.paged && r.URL.Query().Get("$skiptoken") == "":
+		v := list("H1").(map[string]any)
+		v["@odata.nextLink"] = "http://" + r.Host + "/v1.0/me/mailFolders/F-inbox/messages?%24skiptoken=abc"
+		reply(200, v)
+	case p == "/me/mailFolders/F-inbox/messages" && g.paged:
+		reply(200, list("M1"))
 	case p == "/me/mailFolders/F-inbox/messages":
 		reply(200, list("H1", "M1"))
 	case p == "/me/mailFolders/sentitems/messages":
@@ -223,7 +231,7 @@ func (e *itEnv) run(args ...string) result {
 	e.t.Helper()
 	var out, errb bytes.Buffer
 	code := cli.Run(context.Background(), args, cli.Deps{
-		NewCommands: commandsFor(e.cfg), Selftest: selftestFor(e.cfg),
+		NewCommands: commandsFor(e.cfg), Selftest: selftestFor(e.cfg), PolicyPath: e.cfg.PolicyPath,
 		Build:  cli.BuildInfo{Version: "1.2.3", Commit: "abc", Date: "today"},
 		Stdout: &out, Stderr: &errb,
 	})
@@ -254,7 +262,7 @@ func TestITWhoamiAndFolders(t *testing.T) {
 	e := newITEnv(t, nil)
 	r := e.run("whoami")
 	r.wantExit(t, 0)
-	if m := r.obj(t); m["mailbox"] != itMailbox || m["agent_id"] != "agent-it" {
+	if m := r.obj(t); m["mailbox"] != itMailbox || m["agent_id"] != "agent-it" || m["policy_path"] != e.cfg.PolicyPath {
 		t.Errorf("whoami = %v", m)
 	}
 	e.run("folder", "list").wantExit(t, 0)
@@ -443,6 +451,9 @@ func TestITSelftestPasses(t *testing.T) {
 	e := newITEnv(t, nil)
 	r := e.run("selftest")
 	r.wantExit(t, 0)
+	if r.obj(t)["policy_path"] != e.cfg.PolicyPath {
+		t.Errorf("selftest must report the policy path: %s", r.raw)
+	}
 	if e.g.totalWrites() != 0 {
 		t.Errorf("selftest must not write: %v", e.g.posts)
 	}
@@ -458,5 +469,28 @@ func TestITOnlyMeEndpoints(t *testing.T) {
 		if !strings.HasPrefix(p, "/v1.0/me") || strings.Contains(p, "/users/") {
 			t.Errorf("request outside /me: %s", p)
 		}
+	}
+}
+
+// FR-R1: the composition root wires the per-install page-token key, so a
+// multi-page walk works in the real binary and the key file lands next to the
+// ledger with mode 0600.
+func TestITPagedListUsesPageTokenKey(t *testing.T) {
+	e := newITEnv(t, nil)
+	e.g.paged = true
+	r := e.run("mail", "list", "--limit", "1")
+	r.wantExit(t, 0)
+	items, _ := r.data().([]any)
+	if len(items) < 2 {
+		t.Fatalf("want a message and a next_page_token element: %s", r.raw)
+	}
+	tok, _ := items[len(items)-1].(map[string]any)["next_page_token"].(string)
+	if tok == "" {
+		t.Fatalf("no next_page_token: %s", r.raw)
+	}
+	e.run("mail", "list", "--limit", "1", "--page-token", tok).wantExit(t, 0)
+	fi, err := os.Stat(filepath.Join(filepath.Dir(e.audit), pageKeyFileName))
+	if err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("page key file: %v %v", fi, err)
 	}
 }

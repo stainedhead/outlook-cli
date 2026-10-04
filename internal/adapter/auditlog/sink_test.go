@@ -209,3 +209,40 @@ func TestSecretsAreRedacted(t *testing.T) {
 		t.Fatal("secret leaked")
 	}
 }
+
+// FR-R13: core audit.Record (v0.1.0) has no extension fields, so recipient
+// count/hash, message id and warnings are folded into policy_decision as
+// ";key=value" suffixes (docs/requested-core-changes.md item 17).
+func TestRecordFoldsExtensionFieldsIntoPolicyDecision(t *testing.T) {
+	var buf bytes.Buffer
+	s := NewWithWriter(&buf, Config{Clock: fakeClock{t0}})
+	e := entry()
+	e.Outcome, e.PolicyDecision, e.HTTPStatus = "ok", "allow", 202
+	e.RecipientCount, e.RecipientHash, e.MessageID = 2, "0123456789abcdef0123456789abcdef", "AAMk=1"
+	e.Warnings = []string{"ledger_update_failed", "probe=inconclusive"}
+	if err := s.Record(context.Background(), e, nil); err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &m); err != nil {
+		t.Fatal(err)
+	}
+	want := "allow;recipient_count=2;recipient_hash=0123456789abcdef0123456789abcdef;message_id=AAMk=1;warnings=ledger_update_failed,probe=inconclusive"
+	if m["policy_decision"] != want {
+		t.Errorf("policy_decision = %v, want %v", m["policy_decision"], want)
+	}
+	if m["http_status"] != float64(202) {
+		t.Errorf("http_status = %v", m["http_status"])
+	}
+}
+
+func TestRecordOmitsEmptyExtensionFields(t *testing.T) {
+	var buf bytes.Buffer
+	s := NewWithWriter(&buf, Config{Clock: fakeClock{t0}})
+	if err := s.Record(context.Background(), entry(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), `"policy_decision":"deny:send.recipients.external"`) {
+		t.Errorf("plain decision must be untouched: %s", buf.String())
+	}
+}

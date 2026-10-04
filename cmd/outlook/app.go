@@ -126,20 +126,23 @@ func assemble(ctx context.Context, cfg appConfig) (*app, error) {
 	if err != nil {
 		return nil, domain.NewGeneral("credential source cannot be built").WithCause(err)
 	}
+	ledgerPath := cfg.LedgerPath
+	if ledgerPath == "" {
+		ledgerPath = filepath.Join(filepath.Dir(pol.AuditPath), ledgerFileName)
+	}
+
 	gcfg := cfg.Graph
 	gcfg.Refresher = auth.NewAuthorizer(src)
 	if cfg.GraphBaseURL != "" {
 		gcfg.BaseURL = cfg.GraphBaseURL
 	}
+	// FR-R1: signed page tokens need a per-install key next to the ledger.
+	gcfg.PageTokenKey = newPageKeyProvider(pageKeyPath(ledgerPath))
 	gc, err := graph.New(gcfg)
 	if err != nil {
 		return nil, err
 	}
 
-	ledgerPath := cfg.LedgerPath
-	if ledgerPath == "" {
-		ledgerPath = filepath.Join(filepath.Dir(pol.AuditPath), ledgerFileName)
-	}
 	led, err := ledger.New(ledger.Config{Path: ledgerPath})
 	if err != nil {
 		return nil, err
@@ -163,15 +166,21 @@ func assemble(ctx context.Context, cfg appConfig) (*app, error) {
 	}
 	deps := usecase.Deps{
 		Reader: gc, Writer: gc, Probe: gc,
-		Ledger:  led,
-		Policy:  staticPolicy{pol},
-		Filters: filters,
-		Audit:   sink,
-		Clock:   cfg.Clock,
-		Run:     usecase.RunInfo{AgentID: cfg.AgentID, RunID: cfg.RunID},
+		Ledger:     led,
+		Policy:     staticPolicy{pol},
+		Filters:    filters,
+		Audit:      sink,
+		Clock:      cfg.Clock,
+		Run:        usecase.RunInfo{AgentID: cfg.AgentID, RunID: cfg.RunID},
+		PolicyPath: cfg.PolicyPath,
 	}
 	if pol.Read.Attachments.Download {
-		deps.Quarantine = ledger.Quarantine{Root: pol.Read.Attachments.OutDir}
+		q, qerr := ledger.NewQuarantine(pol.Read.Attachments.OutDir)
+		if qerr != nil {
+			_ = sink.Close()
+			return nil, qerr
+		}
+		deps.Quarantine = q
 	}
 	return &app{cmds: usecase.New(deps), policy: pol, audit: sink}, nil
 }
@@ -199,9 +208,4 @@ func selftestFor(cfg appConfig) func(context.Context) (selftest.Result, error) {
 		defer a.close()
 		return selftestcfg.Runner(a.cmds, a.policy, false).Run(ctx)
 	}
-}
-
-// buildApp is the composition root used by the binary.
-func buildApp(ctx context.Context) (usecase.Commands, error) {
-	return commandsFor(prodConfig())(ctx)
 }

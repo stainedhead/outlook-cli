@@ -410,26 +410,17 @@ var authResultRe = regexp.MustCompile(`(?i)\b(spf|dkim|dmarc)\s*=\s*([a-z]+)`)
 // Authentication-Results header from a trusted authserv-id supplies one.
 const AuthUnverified = "unverified"
 
-// ParseAuthResults extracts SPF, DKIM and DMARC verdicts from every
-// Authentication-Results header regardless of who wrote it, taking the first
-// verdict per mechanism. A sender can inject such a header, so this is only
-// safe for tests and tools; product code uses ParseAuthResultsFor (FR-R10).
-//
-// ASSUMPTION(unverified against a real tenant): Graph exposes the header via
-// internetMessageHeaders and its format follows RFC 8601.
-func ParseAuthResults(headers []Header) *AuthResults { return parseAuth(headers, nil, false) }
-
-// ParseAuthResultsFor is the verified form of ParseAuthResults: only headers
+// ParseAuthResultsFor extracts SPF, DKIM and DMARC verdicts. Only headers
 // whose authserv-id (the token before the first ';', RFC 8601) equals one of
 // trustedIDs (case-insensitive) count. A mechanism without a verdict from such
 // a header reports AuthUnverified. It returns nil only when there is no
 // Authentication-Results header at all. With no trustedIDs every verdict is
-// unverified. Advisory only.
+// unverified. Advisory only (a sender can forge a header that carries a
+// trusted-looking id only if the tenant does not strip it; FR-R10).
+//
+// ASSUMPTION(unverified against a real tenant): Graph exposes the header via
+// internetMessageHeaders and its format follows RFC 8601.
 func ParseAuthResultsFor(headers []Header, trustedIDs []string) *AuthResults {
-	return parseAuth(headers, trustedIDs, true)
-}
-
-func parseAuth(headers []Header, trustedIDs []string, verify bool) *AuthResults {
 	var res AuthResults
 	present := false
 	for _, h := range headers {
@@ -437,12 +428,10 @@ func parseAuth(headers []Header, trustedIDs []string, verify bool) *AuthResults 
 			continue
 		}
 		present = true
-		if verify {
-			id, _, _ := strings.Cut(h.Value, ";")
-			id = strings.TrimSpace(id)
-			if id == "" || !containsFold(trustedIDs, id) {
-				continue
-			}
+		id, _, _ := strings.Cut(h.Value, ";")
+		id = strings.TrimSpace(id)
+		if id == "" || !containsFold(trustedIDs, id) {
+			continue
 		}
 		for _, m := range authResultRe.FindAllStringSubmatch(h.Value, -1) {
 			v := strings.ToLower(m[2])
@@ -462,19 +451,13 @@ func parseAuth(headers []Header, trustedIDs []string, verify bool) *AuthResults 
 			}
 		}
 	}
-	if verify {
-		for _, p := range []*string{&res.SPF, &res.DKIM, &res.DMARC} {
-			if *p == "" {
-				*p = AuthUnverified
-			}
-		}
-		if !present {
-			return nil
-		}
-		return &res
-	}
-	if res.SPF == "" && res.DKIM == "" && res.DMARC == "" {
+	if !present {
 		return nil
+	}
+	for _, p := range []*string{&res.SPF, &res.DKIM, &res.DMARC} {
+		if *p == "" {
+			*p = AuthUnverified
+		}
 	}
 	return &res
 }

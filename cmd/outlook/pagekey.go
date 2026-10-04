@@ -13,8 +13,7 @@ import (
 // Per-install page-token key (FR-R1). The graph adapter signs page tokens with
 // an HMAC key so a forged or cross-install token is rejected. The key is 32
 // random bytes persisted 0600 next to the ledger/state directory, created on
-// first use. The graph config field that consumes it is wired separately:
-// graph.Config.PageTokenKey = newPageKeyProvider(pageKeyPath(ledgerPath)).
+// first use. assemble wires it into graph.Config.PageTokenKey.
 const (
 	pageKeyFileName = "outlook.pagekey"
 	pageKeyLen      = 32

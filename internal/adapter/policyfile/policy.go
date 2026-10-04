@@ -45,7 +45,9 @@ type fileDoc struct {
 		MaxBodyBytes int      `yaml:"max_body_bytes"`
 		HTMLToText   *bool    `yaml:"html_to_text"`
 		DefangLinks  *bool    `yaml:"defang_links"`
-		Attachments  struct {
+		// AuthservIDs lists trusted Authentication-Results authserv-ids (FR-R10).
+		AuthservIDs []string `yaml:"auth_results_authserv_ids"`
+		Attachments struct {
 			Download   string   `yaml:"download"`
 			AllowTypes []string `yaml:"allow_types"`
 			MaxBytes   int64    `yaml:"max_bytes"`
@@ -189,6 +191,14 @@ func convertRead(pr *problems, p *domain.Policy, d fileDoc) {
 	}
 	r.HTMLToText = d.Read.HTMLToText == nil || *d.Read.HTMLToText
 	r.DefangLinks = d.Read.DefangLinks == nil || *d.Read.DefangLinks
+	for _, id := range d.Read.AuthservIDs {
+		id = strings.TrimSpace(id)
+		if id == "" || strings.ContainsAny(id, " ;\r\n\x00") {
+			pr.add("read.auth_results_authserv_ids entries must be single tokens such as mx.example.com")
+			continue
+		}
+		r.TrustedAuthservIDs = append(r.TrustedAuthservIDs, id)
+	}
 
 	a := d.Read.Attachments
 	hasDetail := len(a.AllowTypes) > 0 || a.MaxBytes != 0 || a.OutDir != ""

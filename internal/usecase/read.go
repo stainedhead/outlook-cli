@@ -19,10 +19,11 @@ func (s *service) Whoami(ctx context.Context) (res WhoamiResult, err error) {
 			return e
 		}
 		res = WhoamiResult{
-			Mailbox: p.Mailbox,
-			AgentID: s.d.Run.AgentID,
-			RunID:   s.d.Run.RunID,
-			Profile: p.Profile,
+			Mailbox:    p.Mailbox,
+			AgentID:    s.d.Run.AgentID,
+			RunID:      s.d.Run.RunID,
+			Profile:    p.Profile,
+			PolicyPath: s.d.PolicyPath,
 			Limits: domain.Limits{
 				MaxResults:      p.EffectiveMaxResults(0),
 				MaxWritesPerRun: p.Limits.MaxWritesPerRun,
@@ -189,7 +190,7 @@ func (s *service) buildMessage(p domain.Policy, raw domain.RawMessage, r GetRequ
 		MessageSummary: s.cleanSummary(p, raw.MessageSummary),
 		Cc:             cleanAddresses(raw.Cc),
 		Attachments:    s.markAttachments(p, raw.Attachments),
-		AuthResults:    domain.ParseAuthResults(raw.InternetHeaders),
+		AuthResults:    domain.ParseAuthResultsFor(raw.InternetHeaders, p.Read.TrustedAuthservIDs),
 	}
 	if r.BodyFormat == domain.BodyNone {
 		m.Body = domain.Body{Format: domain.BodyNone}

@@ -463,9 +463,12 @@ func TestOutputBoundsAndFormats(t *testing.T) {
 func TestSelftest(t *testing.T) {
 	pass := selftest.Result{Rows: []selftest.RowResult{{Row: selftest.Row{Name: "r", Verb: "read", Resource: "mail.list"}, Status: selftest.StatusPass}}}
 	var out bytes.Buffer
-	d := cli.Deps{Stdout: &out, Selftest: func(context.Context) (selftest.Result, error) { return pass, nil }}
+	d := cli.Deps{Stdout: &out, PolicyPath: "/etc/p.yaml", Selftest: func(context.Context) (selftest.Result, error) { return pass, nil }}
 	if code := cli.Run(context.Background(), []string{"selftest"}, d); code != 0 {
 		t.Errorf("pass: %d %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), `"policy_path":"/etc/p.yaml"`) {
+		t.Errorf("selftest must report the policy path: %s", out.String())
 	}
 	fail := selftest.Result{Failed: 1, Rows: []selftest.RowResult{{Row: selftest.Row{Name: "r"}, Status: selftest.StatusFail}}}
 	d.Selftest = func(context.Context) (selftest.Result, error) { return fail, nil }

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/stainedhead/agent-cli-core/docgen"
+	"github.com/stainedhead/agent-cli-core/selftest"
 	"github.com/stainedhead/outlook-cli/internal/domain"
 	"github.com/stainedhead/outlook-cli/internal/usecase"
 )
@@ -31,7 +32,14 @@ func buildSelftest(r *runner, _ *flag.FlagSet) handler {
 		if err != nil {
 			return nil, err
 		}
-		return envResult(res.Envelope()), nil
+		env := res.Envelope()
+		if env.OK {
+			env.Data = struct {
+				selftest.Result
+				PolicyPath string `json:"policy_path"`
+			}{res, r.PolicyPath}
+		}
+		return envResult(env), nil
 	}
 }
 

@@ -140,3 +140,34 @@ func TestFRR2ReleaseIgnoresInsecureEnv(t *testing.T) {
 		t.Fatal("prodConfig must carry no override in a release build")
 	}
 }
+
+// FR-R12: with download allowed the quarantine store is built through
+// NewQuarantine; the assembled graph is usable.
+func TestFRR12AssembleBuildsQuarantineWhenDownloadAllowed(t *testing.T) {
+	out := t.TempDir()
+	e := newITEnv(t, func(p string) string {
+		return strings.Replace(p, "attachments: { download: deny }",
+			"attachments: { download: allow, allow_types: [pdf], max_bytes: 1000, out_dir: "+out+" }", 1)
+	})
+	a, err := assemble(context.Background(), e.cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.close()
+}
+
+// FR-R13: a ledger directory that is not private (0700) stops assemble.
+func TestFRR13AssembleRefusesSharedLedgerDir(t *testing.T) {
+	e := newITEnv(t, nil)
+	dir := filepath.Join(t.TempDir(), "shared")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e.cfg.LedgerPath = filepath.Join(dir, ledgerFileName)
+	if _, err := assemble(context.Background(), e.cfg); err == nil {
+		t.Fatal("a 0755 ledger directory must be refused")
+	}
+}

@@ -381,6 +381,8 @@ type Deps struct {
 	Audit      AuditSink
 	Clock      Clock
 	Run        RunInfo
+	// PolicyPath is the policy file in force; whoami reports it (FR-R2).
+	PolicyPath string
 }
 
 // Commands is the use-case surface the CLI (WS3) calls and the selftest probe
@@ -410,15 +412,18 @@ type Commands interface {
 
 // WhoamiResult is the whoami payload.
 type WhoamiResult struct {
-	Mailbox  string
-	AgentID  string
-	RunID    string
-	Profile  string
-	Limits   domain.Limits
-	SendMode domain.SendMode
-	External domain.ExternalMode
-	MaxTotal int
-	Rate     domain.SendRate
+	Mailbox string
+	AgentID string
+	RunID   string
+	Profile string
+	// PolicyPath is the policy file in force (FR-R2); empty when the provider
+	// does not know a path.
+	PolicyPath string
+	Limits     domain.Limits
+	SendMode   domain.SendMode
+	External   domain.ExternalMode
+	MaxTotal   int
+	Rate       domain.SendRate
 }
 
 // ListRequest is `mail list`. Folder is a name; empty means inbox.

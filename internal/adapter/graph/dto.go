@@ -139,6 +139,10 @@ func (m messageDTO) raw() domain.RawMessage {
 		Bcc:               toAddresses(m.BccRecipients),
 		InternetMessageID: m.InternetMessageID,
 		ParentFolderID:    m.ParentFolderID,
+		ReplyTo:           m.ReplyToAddresses(),
+	}
+	if sa, ok := m.SenderAddress(); ok {
+		r.Sender = sa
 	}
 	if m.Body != nil {
 		r.Body = domain.RawBody{Format: bodyFormat(m.Body.ContentType), Content: m.Body.Content}

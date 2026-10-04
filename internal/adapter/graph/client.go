@@ -105,6 +105,10 @@ func (s *statusCause) Error() string { return "HTTP " + strconv.Itoa(s.status) }
 // statusError maps a non-2xx status that httpx let through.
 func statusError(status int, notFound string) error {
 	cause := &statusCause{status}
+	return statusErr(status, notFound, cause).WithHTTPStatus(status)
+}
+
+func statusErr(status int, notFound string, cause error) *domain.Error {
 	switch status {
 	case http.StatusNotFound, http.StatusGone:
 		return domain.NewNotFound(notFound).WithCause(cause)
@@ -114,6 +118,23 @@ func statusError(status int, notFound string) error {
 		return domain.NewConflict("graph reported a conflict (HTTP " + strconv.Itoa(status) + ")").WithCause(cause)
 	}
 	return domain.NewGeneral("unexpected graph response (HTTP " + strconv.Itoa(status) + ")").WithCause(cause)
+}
+
+// httpxStatus is the HTTP status behind a typed httpx error (0 for transport
+// failures and anything else), so the audit record can carry it (FR-R13).
+func httpxStatus(err error) int {
+	var rl *httpx.RateLimitedError
+	var fb *httpx.ForbiddenError
+	var ae *httpx.AuthError
+	switch {
+	case errors.As(err, &rl):
+		return rl.Status
+	case errors.As(err, &fb):
+		return http.StatusForbidden
+	case errors.As(err, &ae):
+		return http.StatusUnauthorized
+	}
+	return 0
 }
 
 // unwrapURLError strips the *url.Error that http.Client adds, so the typed
@@ -150,7 +171,8 @@ func (c *Client) do(ctx context.Context, method, rawURL string, hdr map[string]s
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		return nil, unwrapURLError(err)
+		err = unwrapURLError(err)
+		return nil, domain.WithUpstreamStatus(err, httpxStatus(err))
 	}
 	if resp.StatusCode/100 == 2 {
 		return resp, nil

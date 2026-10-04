@@ -35,9 +35,11 @@ type Deps struct {
 	// "not available".
 	Selftest func(ctx context.Context) (selftest.Result, error)
 	Build    BuildInfo
-	Stdin    io.Reader
-	Stdout   io.Writer
-	Stderr   io.Writer
+	// PolicyPath is the policy file in force; selftest reports it (FR-R2).
+	PolicyPath string
+	Stdin      io.Reader
+	Stdout     io.Writer
+	Stderr     io.Writer
 	// ReadFile reads --body-file; defaults to a bounded, regular-file-only reader (FR-R7).
 	ReadFile func(path string) ([]byte, error)
 }

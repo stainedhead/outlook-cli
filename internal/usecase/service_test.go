@@ -140,3 +140,18 @@ func TestWhoamiDefaultsAreDeny(t *testing.T) {
 		t.Errorf("whoami = %+v, %v", got, err)
 	}
 }
+
+func TestAuditCarriesUpstreamHTTPStatus(t *testing.T) {
+	e := newEnv(t)
+	e.r.listErr = domain.NewGeneral("boom").WithHTTPStatus(502)
+	_, _ = e.cmds.ListFolders(context.Background())
+	e.r.listErr = domain.WithUpstreamStatus(domain.NewForbidden("no"), 403)
+	_, _ = e.cmds.ListFolders(context.Background())
+	var got []int
+	for _, a := range e.a.entries {
+		got = append(got, a.HTTPStatus)
+	}
+	if len(got) < 2 || got[len(got)-2] != 502 || got[len(got)-1] != 403 {
+		t.Fatalf("audit statuses = %v", got)
+	}
+}

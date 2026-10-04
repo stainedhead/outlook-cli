@@ -170,7 +170,11 @@ func presentOutgoing(m domain.OutgoingMessage) obj {
 func presentSend(r domain.SendResult) obj {
 	o := obj{
 		"dry_run": r.DryRun, "already_sent": r.AlreadySent,
+		"already_drafted": r.AlreadyDrafted, "prefix_applied": r.PrefixApplied,
 		"decision": r.Decision.AuditString(), "rendered": presentOutgoing(r.Rendered),
+	}
+	if len(r.Warnings) > 0 {
+		o["warnings"] = r.Warnings
 	}
 	if r.DraftID != "" {
 		o["draft_id"] = r.DraftID
@@ -184,7 +188,8 @@ func presentSend(r domain.SendResult) obj {
 func presentWhoami(w usecase.WhoamiResult) obj {
 	return obj{
 		"mailbox": w.Mailbox, "agent_id": w.AgentID, "run_id": w.RunID, "profile": w.Profile,
-		"send_mode": string(w.SendMode), "external": string(w.External), "max_recipients": w.MaxTotal,
+		"policy_path": w.PolicyPath,
+		"send_mode":   string(w.SendMode), "external": string(w.External), "max_recipients": w.MaxTotal,
 		"rate":   obj{"per_hour": w.Rate.PerHour, "per_day": w.Rate.PerDay},
 		"limits": obj{"max_results": w.Limits.MaxResults, "max_writes_per_run": w.Limits.MaxWritesPerRun},
 	}

@@ -89,10 +89,8 @@ func (s *service) exec(ctx context.Context, verb domain.Verb, resource string, f
 		MessageID:      c.messageID,
 		Warnings:       c.warnings,
 	}
+	e.HTTPStatus = domain.UpstreamStatusOf(err)
 	var de *domain.Error
-	if errors.As(err, &de) {
-		e.HTTPStatus = de.HTTPStatus
-	}
 	denied := errors.As(err, &de) && (de.Cat == output.CategoryPolicyDenied || (de.Cat == output.CategoryRateLimited && de.RuleID != ""))
 	switch {
 	case denied && de.RuleID != "":

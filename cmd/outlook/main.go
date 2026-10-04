@@ -24,11 +24,13 @@ func main() {
 }
 
 // deps assembles the CLI dependencies. The only wiring point for the real
-// graph is buildApp (app.go).
+// graph is commandsFor (app.go).
 func deps() cli.Deps {
+	cfg := prodConfig()
 	return cli.Deps{
-		NewCommands: buildApp,
-		Selftest:    selftestFor(prodConfig()),
+		NewCommands: commandsFor(cfg),
+		Selftest:    selftestFor(cfg),
+		PolicyPath:  cfg.PolicyPath,
 		Build:       cli.BuildInfo{Version: version, Commit: commit, Date: date},
 		Stdin:       os.Stdin,
 		Stdout:      os.Stdout,

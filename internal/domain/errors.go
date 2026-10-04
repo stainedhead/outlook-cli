@@ -104,3 +104,37 @@ func NotSent(err error) error {
 	}
 	return notSent{err}
 }
+
+// statusError decorates an error with the upstream HTTP status. It adds no
+// text and keeps the category, hint and cause of err reachable (Unwrap).
+type statusError struct {
+	error
+	status int
+}
+
+func (s statusError) Unwrap() error       { return s.error }
+func (s statusError) UpstreamStatus() int { return s.status }
+
+// WithUpstreamStatus records the upstream HTTP status on err without changing
+// its category or text, for errors that are not *Error (for example the typed
+// errors of the HTTP client). Nil stays nil; a status of 0 returns err as is.
+func WithUpstreamStatus(err error, status int) error {
+	if err == nil || status == 0 {
+		return err
+	}
+	return statusError{err, status}
+}
+
+// UpstreamStatusOf returns the upstream HTTP status carried by err (via
+// WithUpstreamStatus or Error.HTTPStatus), or 0.
+func UpstreamStatusOf(err error) int {
+	var s interface{ UpstreamStatus() int }
+	if errors.As(err, &s) {
+		return s.UpstreamStatus()
+	}
+	var e *Error
+	if errors.As(err, &e) {
+		return e.HTTPStatus
+	}
+	return 0
+}

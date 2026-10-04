@@ -13,3 +13,7 @@ Items that are intentionally not built in this repository now, with the reason a
 | Sent Items idempotency probe (P1) | Deferred | Depends on an unverified header search (UA-12). The local ledger covers P0. | S-5 confirms the lookup. |
 | Attachment download enablement | Opt-in only | Off by default; the quarantine path ships but is gated by policy. | An operator enables it in policy. |
 | Root skill update and `docs` automation | Manual | Updating the root repository's skill is a manual PR (PRD s17.1). | A cross-repository token approach is agreed. |
+
+## AGENT_OKTA_D_SOCKET ownership check
+
+The daemon client is a stub, so the credential socket path is not yet checked for ownership. Add the same trust check as the policy file when the real `agent-okta-d` client lands (FR-R2).

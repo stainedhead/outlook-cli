@@ -32,7 +32,7 @@ func TestDefaultSocket(t *testing.T) {
 }
 
 func TestBuildAppFailsClosedWithoutPolicy(t *testing.T) {
-	if _, err := buildApp(context.Background()); err == nil {
+	if _, err := commandsFor(prodConfig())(context.Background()); err == nil {
 		t.Error("expected a policy error (default path absent)")
 	}
 }

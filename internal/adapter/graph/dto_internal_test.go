@@ -28,3 +28,22 @@ func TestFRR4DTOExposesReplyToAndSender(t *testing.T) {
 		t.Fatal("absent replyTo must be nil")
 	}
 }
+
+func TestFRR4RawMapsReplyToAndSender(t *testing.T) {
+	var m messageDTO
+	body := `{"id":"M1","sender":{"emailAddress":{"name":"S","address":"s@x.com"}},
+"replyTo":[{"emailAddress":{"address":"r1@evil.com"}}]}`
+	if err := json.Unmarshal([]byte(body), &m); err != nil {
+		t.Fatal(err)
+	}
+	r := m.raw()
+	if len(r.ReplyTo) != 1 || r.ReplyTo[0].Address != "r1@evil.com" {
+		t.Fatalf("ReplyTo = %+v", r.ReplyTo)
+	}
+	if r.Sender.Address != "s@x.com" {
+		t.Fatalf("Sender = %+v", r.Sender)
+	}
+	if got := (messageDTO{}).raw(); got.ReplyTo != nil || got.Sender.Address != "" {
+		t.Fatalf("absent fields must stay empty: %+v", got)
+	}
+}
