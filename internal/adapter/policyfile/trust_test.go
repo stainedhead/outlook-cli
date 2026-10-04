@@ -219,7 +219,10 @@ func TestFRR2RealStatRefusesAgentOwned(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := Load(p)
-	wantDenied(t, err, "not owned by a trusted")
+	// Which check fires first depends on the temp dir's ancestors (a sticky,
+	// world-writable /tmp on Linux versus a user-owned dir on macOS); every
+	// outcome must be a policy denial naming the policy path.
+	wantDenied(t, err, "policy")
 }
 
 func TestFRR2RealLstatFstat(t *testing.T) {
