@@ -44,6 +44,8 @@ type messageDTO struct {
 	ToRecipients           []recipientDTO  `json:"toRecipients"`
 	CcRecipients           []recipientDTO  `json:"ccRecipients"`
 	BccRecipients          []recipientDTO  `json:"bccRecipients"`
+	ReplyTo                []recipientDTO  `json:"replyTo"`
+	Sender                 *recipientDTO   `json:"sender"`
 	Subject                string          `json:"subject"`
 	IsRead                 bool            `json:"isRead"`
 	IsDraft                bool            `json:"isDraft"`
@@ -111,6 +113,19 @@ func (m messageDTO) summary() domain.MessageSummary {
 		s.From = toAddress(*m.From)
 	}
 	return s
+}
+
+// ReplyToAddresses returns the message's Reply-To addresses (FR-R4). The use
+// case evaluates policy against them because Graph's reply action may address
+// the reply there (unverified against a real tenant).
+func (m messageDTO) ReplyToAddresses() []domain.Address { return toAddresses(m.ReplyTo) }
+
+// SenderAddress returns the Sender header address, if the message has one.
+func (m messageDTO) SenderAddress() (domain.Address, bool) {
+	if m.Sender == nil {
+		return domain.Address{}, false
+	}
+	return toAddress(*m.Sender), true
 }
 
 func (a attachmentDTO) toDomain() domain.Attachment {

@@ -24,7 +24,10 @@ const DefaultBaseURL = "https://graph.microsoft.com/v1.0"
 
 // DefaultIdempotencyHeader is the internet message header the Sent Items probe
 // looks for when Config.IdempotencyHeader is empty.
-const DefaultIdempotencyHeader = "X-Idempotency-Key"
+//
+// FR-R6: it is the very header outgoing messages carry (domain.HeaderIdempotencyKey),
+// so writer and probe cannot drift apart.
+const DefaultIdempotencyHeader = domain.HeaderIdempotencyKey
 
 // maxJSONBytes bounds how much of one JSON response is read.
 const maxJSONBytes = 16 << 20
@@ -41,6 +44,10 @@ type Config struct {
 	// HTTP carries retry tuning (MaxRetries, BaseDelay, MaxWait, Clock, Rand,
 	// Trace). Refresher, AllowedHosts and VendorCode are set by New.
 	HTTP httpx.Config
+	// PageTokenKey supplies the per-install HMAC key (at least 16 bytes) that
+	// signs page tokens (FR-R1). Nil, an error or a short key means page
+	// tokens cannot be minted or accepted: paging fails closed.
+	PageTokenKey func() ([]byte, error)
 }
 
 // Client talks to Graph. It implements the three Graph-backed ports. It is
@@ -50,6 +57,7 @@ type Client struct {
 	base      *url.URL
 	baseStr   string
 	idemHdr   string
+	keyFn     func() ([]byte, error)
 	mu        sync.Mutex
 	wellKnown map[string]domain.WellKnown // folder id -> alias
 }
@@ -72,7 +80,7 @@ func New(cfg Config) (*Client, error) {
 	if idem == "" {
 		idem = DefaultIdempotencyHeader
 	}
-	return &Client{hc: httpx.NewClient(hcfg), base: u, baseStr: raw, idemHdr: idem}, nil
+	return &Client{hc: httpx.NewClient(hcfg), base: u, baseStr: raw, idemHdr: idem, keyFn: cfg.PageTokenKey}, nil
 }
 
 // vendorCode picks a diagnostic value from response headers of a 403.
@@ -240,9 +248,27 @@ func query(kv ...string) string {
 	return strings.Join(parts, "&")
 }
 
+// maxIDLen bounds an id used as a path segment. Graph ids are URL-safe base64
+// (letters, digits, '-', '_', '=') of a few hundred characters at most.
+const maxIDLen = 512
+
+// requireID validates an id (or well-known folder alias) before it becomes a
+// path segment (FR-R11). Empty is a validation error as before; anything
+// outside the conservative charset, including "." and "..", is a usage error
+// and no request is made.
 func requireID(kind, id string) error {
 	if strings.TrimSpace(id) == "" {
 		return domain.NewValidation(fmt.Sprintf("%s id is empty", kind))
+	}
+	if len(id) > maxIDLen || id == "." || id == ".." {
+		return domain.NewUsage(fmt.Sprintf("%s id is not a valid id", kind))
+	}
+	for i := 0; i < len(id); i++ {
+		b := id[i]
+		ok := b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '-' || b == '_' || b == '='
+		if !ok {
+			return domain.NewUsage(fmt.Sprintf("%s id is not a valid id", kind))
+		}
 	}
 	return nil
 }

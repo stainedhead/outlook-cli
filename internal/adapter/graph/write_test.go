@@ -377,7 +377,7 @@ func TestAssumedFindSentByKey(t *testing.T) {
 	s := e.rec.last(t)
 	q, _ := url.ParseQuery(s.RawQuery)
 	if s.Path != "/v1.0/me/mailFolders/sentitems/messages" ||
-		q.Get("$filter") != "internetMessageHeaders/any(h:h/name eq 'X-Idempotency-Key' and h/value eq 'k''1')" {
+		q.Get("$filter") != "internetMessageHeaders/any(h:h/name eq 'X-Agent-Idempotency-Key' and h/value eq 'k''1')" {
 		t.Fatalf("%+v %v", s, q)
 	}
 	none := newEnv(t, authtest.Valid, jsonReply(200, `{"value":[]}`))
@@ -421,18 +421,25 @@ func TestNewValidatesBaseURL(t *testing.T) {
 }
 
 func TestHostIsPinned(t *testing.T) {
-	// A nextLink on another host is not followed: the token check refuses it,
-	// and httpx would refuse the host anyway.
-	e := newEnv(t, authtest.Valid, func(w http.ResponseWriter, _ *http.Request) {
+	// A nextLink on another host is never followed: only its cursor is kept
+	// and the next request is rebuilt on the configured host (FR-R1).
+	e := newEnv(t, authtest.Valid, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"value":[],"@odata.nextLink":"https://evil.example/v1.0/me/messages"}`)
+		if r.URL.Query().Get("$skiptoken") != "" {
+			_, _ = io.WriteString(w, `{"value":[]}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"value":[],"@odata.nextLink":"https://evil.example/v1.0/me/messages?$skiptoken=zz"}`)
 	})
 	pg, err := e.c.ListMessages(ctx, domain.MessageQuery{FolderID: "F"})
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || pg.NextPageToken == "" {
+		t.Fatal(pg, err)
 	}
-	if _, err := e.c.ListMessages(ctx, domain.MessageQuery{PageToken: pg.NextPageToken}); output.CategoryOf(err) != output.CategoryUsage {
+	if _, err := e.c.ListMessages(ctx, domain.MessageQuery{FolderID: "F", PageToken: pg.NextPageToken}); err != nil {
 		t.Fatalf("%v", err)
+	}
+	if s := e.rec.last(t); s.Path != "/v1.0/me/mailFolders/F/messages" {
+		t.Fatalf("%+v", s)
 	}
 	// ListFolders follows nextLink directly: httpx must refuse the foreign host.
 	e2 := newEnv(t, authtest.Valid, func(w http.ResponseWriter, _ *http.Request) {

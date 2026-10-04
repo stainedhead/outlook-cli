@@ -347,3 +347,27 @@ func TestGetMessageCleansCc(t *testing.T) {
 		t.Errorf("cc = %+v err %v", got.Cc, err)
 	}
 }
+
+// FR-R1: read.folders is re-checked on every page, so a token cannot carry a
+// walk into a folder policy does not name, and the token reaches the reader
+// together with the resolved (policy-checked) folder id it is bound to.
+func TestFRR1PageTokenRechecksFolderPolicyOnEveryPage(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	_, err := e.cmds.ListMessages(ctx, ListRequest{Folder: "Archive", PageToken: "tok"})
+	mustCat(t, err, 6)
+	if e.r.gotQuery.PageToken != "" || e.r.gotQuery.FolderID != "" {
+		t.Errorf("reader must not be called for an unreadable folder: %+v", e.r.gotQuery)
+	}
+	_, err = e.cmds.SearchMessages(ctx, SearchRequest{Query: "q", Folder: "Archive", PageToken: "tok"})
+	mustCat(t, err, 6)
+	if len(e.r.gotSearch) != 0 {
+		t.Errorf("reader must not be called for an unreadable folder: %+v", e.r.gotSearch)
+	}
+	if _, err = e.cmds.ListMessages(ctx, ListRequest{Folder: "processed", PageToken: "tok"}); err != nil {
+		t.Fatal(err)
+	}
+	if e.r.gotQuery.FolderID != "f-proc" || e.r.gotQuery.PageToken != "tok" {
+		t.Errorf("token must travel with the resolved folder: %+v", e.r.gotQuery)
+	}
+}

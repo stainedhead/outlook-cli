@@ -64,7 +64,16 @@ type env struct {
 	token *auth.Authorizer
 }
 
+// testPageKey is the HMAC key provider newEnv wires in.
+func testPageKey() ([]byte, error) { return []byte("0123456789abcdef0123456789abcdef"), nil }
+
 func newEnv(t *testing.T, sc authtest.Scenario, h http.HandlerFunc) *env {
+	t.Helper()
+	return newEnvKey(t, sc, testPageKey, h)
+}
+
+// newEnvKey is newEnv with an explicit page token key provider (nil allowed).
+func newEnvKey(t *testing.T, sc authtest.Scenario, key func() ([]byte, error), h http.HandlerFunc) *env {
 	t.Helper()
 	f := authtest.New(sc)
 	r := &rec{}
@@ -91,9 +100,10 @@ func newEnv(t *testing.T, sc authtest.Scenario, h http.HandlerFunc) *env {
 	az := auth.NewAuthorizer(src)
 	clk := &fakeClock{now: time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)}
 	c, err := graph.New(graph.Config{
-		Refresher: az,
-		BaseURL:   srv.URL + "/v1.0",
-		HTTP:      httpx.Config{MaxRetries: 2, Clock: clk, Jitter: -1, Rand: func() float64 { return 0.5 }},
+		Refresher:    az,
+		BaseURL:      srv.URL + "/v1.0",
+		PageTokenKey: key,
+		HTTP:         httpx.Config{MaxRetries: 2, Clock: clk, Jitter: -1, Rand: func() float64 { return 0.5 }},
 	})
 	if err != nil {
 		t.Fatal(err)

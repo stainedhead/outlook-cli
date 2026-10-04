@@ -153,19 +153,29 @@ func (c *Client) ResolveFolder(ctx context.Context, name string) (domain.Folder,
 	return domain.Folder{}, domain.NewNotFound("folder not found: " + name)
 }
 
-func (c *Client) listMessages(ctx context.Context, first, token string) (domain.Page[domain.MessageSummary], error) {
-	target := first
+// listMessages fetches one page of spec. With a token the request is rebuilt
+// from spec and only the verified cursor is added (FR-R1).
+func (c *Client) listMessages(ctx context.Context, spec pageSpec, token string) (domain.Page[domain.MessageSummary], error) {
+	qs := spec.qs
 	if token != "" {
-		var err error
-		if target, err = c.decodeToken(token); err != nil {
+		name, val, err := c.openToken(spec, token)
+		if err != nil {
 			return domain.Page[domain.MessageSummary]{}, err
 		}
+		if qs != "" {
+			qs += "&"
+		}
+		qs += name + "=" + esc(val)
 	}
 	var dto messageListDTO
-	if err := c.getJSON(ctx, target, nil, &dto, "folder not found"); err != nil {
+	if err := c.getJSON(ctx, c.meURL(qs, spec.segs...), nil, &dto, "folder not found"); err != nil {
 		return domain.Page[domain.MessageSummary]{}, err
 	}
-	page := domain.Page[domain.MessageSummary]{NextPageToken: encodeToken(dto.NextLink)}
+	next, err := c.mintToken(spec, dto.NextLink)
+	if err != nil {
+		return domain.Page[domain.MessageSummary]{}, err
+	}
+	page := domain.Page[domain.MessageSummary]{NextPageToken: next}
 	for _, m := range dto.Value {
 		page.Items = append(page.Items, m.summary())
 	}
@@ -183,9 +193,6 @@ func odataString(s string) string { return "'" + strings.ReplaceAll(s, "'", "''"
 // (the epoch when no Since is given). The sender filter uses
 // from/emailAddress/address eq '...'.
 func (c *Client) ListMessages(ctx context.Context, q domain.MessageQuery) (domain.Page[domain.MessageSummary], error) {
-	if q.PageToken != "" {
-		return c.listMessages(ctx, "", q.PageToken)
-	}
 	if err := requireID("folder", q.FolderID); err != nil {
 		return domain.Page[domain.MessageSummary]{}, err
 	}
@@ -205,7 +212,7 @@ func (c *Client) ListMessages(ctx context.Context, q domain.MessageQuery) (domai
 	}
 	qs := query("$top", strconv.Itoa(clampLimit(q.Limit)), "$orderby", "receivedDateTime desc",
 		"$select", summarySelect, "$filter", strings.Join(conds, " and "))
-	return c.listMessages(ctx, c.meURL(qs, "mailFolders", seg(q.FolderID), "messages"), "")
+	return c.listMessages(ctx, pageSpec{op: opList, folder: q.FolderID, segs: []string{"mailFolders", seg(q.FolderID), "messages"}, qs: qs}, q.PageToken)
 }
 
 // SearchMessages runs a free-text search.
@@ -215,18 +222,19 @@ func (c *Client) ListMessages(ctx context.Context, q domain.MessageQuery) (domai
 // $orderby or $filter, returns results in relevance order, and pages with
 // @odata.nextLink.
 func (c *Client) SearchMessages(ctx context.Context, q domain.SearchQuery) (domain.Page[domain.MessageSummary], error) {
-	if q.PageToken != "" {
-		return c.listMessages(ctx, "", q.PageToken)
-	}
 	if strings.TrimSpace(q.Text) == "" {
 		return domain.Page[domain.MessageSummary]{}, domain.NewValidation("search text is empty")
 	}
 	text := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(q.Text)
 	qs := query("$search", `"`+text+`"`, "$top", strconv.Itoa(clampLimit(q.Limit)), "$select", summarySelect)
+	spec := pageSpec{op: opSearch, folder: q.FolderID, segs: []string{"messages"}, qs: qs}
 	if q.FolderID != "" {
-		return c.listMessages(ctx, c.meURL(qs, "mailFolders", seg(q.FolderID), "messages"), "")
+		if err := requireID("folder", q.FolderID); err != nil {
+			return domain.Page[domain.MessageSummary]{}, err
+		}
+		spec.segs = []string{"mailFolders", seg(q.FolderID), "messages"}
 	}
-	return c.listMessages(ctx, c.meURL(qs, "messages"), "")
+	return c.listMessages(ctx, spec, q.PageToken)
 }
 
 // GetMessage returns one message.
@@ -239,7 +247,7 @@ func (c *Client) GetMessage(ctx context.Context, id string, wantHeaders bool) (d
 	if err := requireID("message", id); err != nil {
 		return domain.RawMessage{}, err
 	}
-	sel := summarySelect + ",body,ccRecipients,bccRecipients,internetMessageId,parentFolderId"
+	sel := summarySelect + ",body,ccRecipients,bccRecipients,replyTo,sender,internetMessageId,parentFolderId"
 	if wantHeaders {
 		sel += ",internetMessageHeaders"
 	}
@@ -301,9 +309,6 @@ func (c *Client) OpenAttachment(ctx context.Context, messageID, attachmentID str
 // folder id in /me/mailFolders/drafts/messages; drafts are ordered by
 // lastModifiedDateTime desc.
 func (c *Client) ListDrafts(ctx context.Context, limit int, pageToken string) (domain.Page[domain.MessageSummary], error) {
-	if pageToken != "" {
-		return c.listMessages(ctx, "", pageToken)
-	}
 	qs := query("$top", strconv.Itoa(clampLimit(limit)), "$orderby", "lastModifiedDateTime desc", "$select", summarySelect)
-	return c.listMessages(ctx, c.meURL(qs, "mailFolders", "drafts", "messages"), "")
+	return c.listMessages(ctx, pageSpec{op: opDrafts, folder: "drafts", segs: []string{"mailFolders", "drafts", "messages"}, qs: qs}, pageToken)
 }
