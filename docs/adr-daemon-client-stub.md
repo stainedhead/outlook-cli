@@ -1,6 +1,6 @@
 # ADR: newDaemonClient() returns an unreachable stub
 
-Status: accepted (temporary)
+Status: superseded by `adr-daemon-adapter-wired.md`
 
 Context: tokens come only from agent-okta-d (provider `msgraph`). agent-cli-core v0.1.0 defines the `auth.DaemonClient` interface but ships no socket adapter, and agent-okta-d must not be a dependency of this module.
 

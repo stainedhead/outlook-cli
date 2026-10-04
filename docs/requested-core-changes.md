@@ -1,6 +1,6 @@
 # Requested changes to agent-cli-core
 
-Gaps found while building `outlook` against `agent-cli-core v0.1.0`. The core is never edited from this repository; each item records the workaround in use. Source: Phase A review of the core's public API.
+Gaps found while building `outlook` against `agent-cli-core` (v0.1.0, updated for v0.2.0). The core is never edited from this repository; each item records the workaround in use. Source: Phase A review of the core's public API.
 
 | # | Area | Gap in v0.1.0 | Workaround here | Priority |
 |---|---|---|---|---|
@@ -10,7 +10,7 @@ Gaps found while building `outlook` against `agent-cli-core v0.1.0`. The core is
 | 4 | `policy` | The engine is a generic verb/resource/field rule set with its own schema. It has no typed recipient, domain or mailbox rules, and rate limits are in memory per process (every CLI run is a new process). | Typed policy modelled in `internal/domain`; persistent send history in the idempotency ledger. | Medium |
 | 5 | `policy` | The agent-writable-file check exists only inside `policy.Load`; there is no standalone function. | Small stat-based check in the policy-file adapter. | Low |
 | 6 | clock | `internal/clock` is not importable; `policy`, `audit` and `httpx` each declare a small clock interface. | `outlook` declares its own `Clock` and adapts it where needed. | Low |
-| 7 | `auth` | No real daemon adapter (known; waits for `agent-okta-d` `pkg/client`). | `newDaemonClient()` stub in `cmd/outlook` returns `*auth.UnreachableError` (exit 3). | Known |
+| 7 | `auth` | No real daemon adapter. | Resolved in v0.2.0: `auth/oktad`, wired in `newDaemonClient()`. | Done |
 | 8 | `audit` | `Record` has no field for the deciding rule id. | Encode as `PolicyDecision` = `deny:<rule-id>`. | Low |
 | 9 | `docgen` | `CommandTree.Commands` is flat. | Nested commands are named with a space (`mail send`). | Low |
 
@@ -35,3 +35,4 @@ These come from reading the PRD requirements against the core's documented behav
 | 17 | `audit` | `audit.Record` (v0.1.0) has no extension fields, so the recipient count, recipient-set hash, message or draft id and warnings (FR-R13) cannot be written as their own columns. Related: `Record.HTTPStatus` exists and is populated. | The sink folds them into `policy_decision` as `;key=value` suffixes (`allow;recipient_count=2;recipient_hash=<32 hex>;message_id=<id>;warnings=a,b`). A core `Record.Extra map[string]string` (or typed fields) would let the sink emit real columns. | Medium |
 | 18 | `output` | `Meta.next_page_token` (extends items 2 and 13). The page token is now a signed, operation-bound string; it still travels as the final array element of `data`. | As item 13. Add `Meta.next_page_token string` and allow list commands to return an object. | Medium |
 | 19 | `httpx` | The typed 401, 403 and 429 errors carry no Graph error code (body is unreadable; extends items 1 and 16). Also, no hook to read a bounded response body for the vendor error code. | `http_status` is copied from the typed error into the audit record; the code is the first present response header among `x-ms-error-code`, `request-id`, `client-request-id`. Request: a `Config.VendorCodeFromBody` hook or an error type exposing the status and a bounded body prefix. | Medium |
+| 20 | `auth` | `DaemonTokenSource` (v0.2.0) wraps every error other than unreachable, reauth and revoked in `auth.TokenError` (category auth, exit 3). That hides `oktad.TransientError` (rate_limited, exit 8, retry hint) and `oktad.AccessError` (specific hint). | Fixed in core v0.2.1; the local wrapper was removed. | Done |

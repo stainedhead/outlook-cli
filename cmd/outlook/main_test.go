@@ -2,32 +2,27 @@ package main
 
 import (
 	"context"
-	"errors"
 	"testing"
 
-	"github.com/stainedhead/agent-cli-core/auth"
-	"github.com/stainedhead/agent-cli-core/output"
+	"github.com/stainedhead/agent-cli-core/auth/oktad"
 )
 
-func TestDaemonClientStubIsUnreachableExit3(t *testing.T) {
+func TestNewDaemonClientIsOktadAndHonorsSocketEnv(t *testing.T) {
 	t.Setenv("AGENT_OKTA_D_SOCKET", "/tmp/x.sock")
-	c := newDaemonClient()
-	for name, f := range map[string]func(context.Context, string) (auth.Token, error){"fetch": c.Fetch, "refresh": c.Refresh} {
-		_, err := f(context.Background(), "msgraph")
-		var u *auth.UnreachableError
-		if !errors.As(err, &u) || u.Socket != "/tmp/x.sock" {
-			t.Fatalf("%s: got %v", name, err)
-		}
-		if output.ExitOf(err) != output.ExitCode(3) {
-			t.Errorf("%s: exit %d", name, output.ExitOf(err))
-		}
+	c, ok := newDaemonClient().(*oktad.Client)
+	if !ok {
+		t.Fatalf("newDaemonClient returned %T, want *oktad.Client", newDaemonClient())
+	}
+	if c.SocketPath() != "/tmp/x.sock" {
+		t.Errorf("socket = %q, want the AGENT_OKTA_D_SOCKET value", c.SocketPath())
 	}
 }
 
-func TestDefaultSocket(t *testing.T) {
+func TestNewDaemonClientDefaultSocketWhenEnvEmpty(t *testing.T) {
 	t.Setenv("AGENT_OKTA_D_SOCKET", "")
-	if daemonSocket() != defaultDaemonSocket {
-		t.Error("default socket not used")
+	c := newDaemonClient().(*oktad.Client)
+	if c.SocketPath() == "" {
+		t.Error("expected the adapter's platform default socket")
 	}
 }
 

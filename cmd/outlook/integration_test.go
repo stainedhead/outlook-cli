@@ -69,6 +69,7 @@ const hostileHTML = `<html><head><style>p{display:none}</style><script>alert(1)<
 type fakeGraph struct {
 	mu    sync.Mutex
 	paths []string
+	auths []string       // Authorization header of every request
 	posts map[string]int // "POST /v1.0/me/sendMail" -> count
 	bodys map[string][]string
 	msgs  map[string]map[string]any
@@ -115,6 +116,7 @@ func (g *fakeGraph) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	g.mu.Lock()
 	g.paths = append(g.paths, r.URL.Path)
+	g.auths = append(g.auths, r.Header.Get("Authorization"))
 	if r.Method != http.MethodGet {
 		k := r.Method + " " + r.URL.Path
 		g.posts[k]++
@@ -225,6 +227,7 @@ type result struct {
 	code int
 	env  map[string]any
 	raw  string
+	errs string // stderr
 }
 
 func (e *itEnv) run(args ...string) result {
@@ -235,7 +238,7 @@ func (e *itEnv) run(args ...string) result {
 		Build:  cli.BuildInfo{Version: "1.2.3", Commit: "abc", Date: "today"},
 		Stdout: &out, Stderr: &errb,
 	})
-	r := result{code: int(code), raw: out.String()}
+	r := result{code: int(code), raw: out.String(), errs: errb.String()}
 	_ = json.Unmarshal(out.Bytes(), &r.env)
 	return r
 }
@@ -407,21 +410,6 @@ func TestITUsageAndValidation(t *testing.T) {
 	e.run("mail", "send", "--to", "jane@corp.example.com").wantExit(t, 2)
 	e.run("mail", "send", "--to", "jane@corp.example.com\r\nBcc: x@evil.example", "--subject", "s", "--body", "b").wantExit(t, 9)
 	e.run("nonsense").wantExit(t, 2)
-}
-
-func TestITDaemonUnavailableExit3(t *testing.T) {
-	e := newITEnv(t, nil)
-	e.cfg.Daemon = newDaemonClient() // the real stub: no daemon client exists yet
-	t.Setenv("AGENT_OKTA_D_SOCKET", "/run/test/agent-okta-d.sock")
-	e.cfg.Daemon = newDaemonClient()
-	r := e.run("mail", "list")
-	r.wantExit(t, 3)
-	if !strings.Contains(r.raw, "/run/test/agent-okta-d.sock") {
-		t.Errorf("error should name the socket: %s", r.raw)
-	}
-	if e.g.totalWrites() != 0 {
-		t.Error("no request should be made")
-	}
 }
 
 func TestITPolicyMissingInvalidAndWritable(t *testing.T) {

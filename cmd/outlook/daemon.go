@@ -1,37 +1,19 @@
 package main
 
 import (
-	"context"
-	"os"
+	"time"
 
 	"github.com/stainedhead/agent-cli-core/auth"
+	"github.com/stainedhead/agent-cli-core/auth/oktad"
 )
 
-// defaultDaemonSocket is where agent-okta-d is expected to listen.
-// ASSUMPTION (unverified): the real path is set by the daemon deployment; the
-// AGENT_OKTA_D_SOCKET environment variable overrides it.
-const defaultDaemonSocket = "/run/agent-okta-d/agent-okta-d.sock"
+// daemonTimeout bounds each request to the credential daemon.
+const daemonTimeout = 10 * time.Second
 
-func daemonSocket() string {
-	if s := os.Getenv("AGENT_OKTA_D_SOCKET"); s != "" {
-		return s
-	}
-	return defaultDaemonSocket
+// newDaemonClient returns the credential-daemon client: core's oktad adapter
+// over the agent-okta-d unix socket (see docs/adr-daemon-adapter-wired.md).
+// The socket is AGENT_OKTA_D_SOCKET if set, else the adapter's platform
+// default; no fallback credentials exist.
+func newDaemonClient() auth.DaemonClient {
+	return oktad.New(oktad.WithTimeout(daemonTimeout))
 }
-
-// unreachableClient is the temporary auth.DaemonClient: agent-okta-d has no
-// Go client yet (see docs/adr-daemon-client-stub.md), so every call reports
-// the daemon as unreachable, naming the socket (exit 3, no fallback creds).
-type unreachableClient struct{ socket string }
-
-func (c unreachableClient) Fetch(context.Context, string) (auth.Token, error) {
-	return auth.Token{}, &auth.UnreachableError{Socket: c.socket}
-}
-
-func (c unreachableClient) Refresh(context.Context, string) (auth.Token, error) {
-	return auth.Token{}, &auth.UnreachableError{Socket: c.socket}
-}
-
-// newDaemonClient returns the credential-daemon client. Swapping this one
-// function for the real adapter is the whole change.
-func newDaemonClient() auth.DaemonClient { return unreachableClient{socket: daemonSocket()} }

@@ -81,13 +81,22 @@ func TestNothingImportsCmd(t *testing.T) {
 	})
 }
 
+// TestNoDaemonModuleImported keeps the daemon client behind core's oktad
+// adapter: the only direct import of agent-okta-d is the clienttest fake
+// daemon, and only from the composition root's tests.
 func TestNoDaemonModuleImported(t *testing.T) {
 	root := repoRoot(t)
+	const fake = "github.com/stainedhead/agent-okta-d/pkg/client/clienttest"
 	walkGo(t, root, func(file string, imports []string) {
 		for _, imp := range imports {
-			if strings.Contains(imp, "agent-okta-d") {
-				t.Errorf("%s imports %s: agent-okta-d must not be a dependency", rel(root, file), imp)
+			if !strings.Contains(imp, "agent-okta-d") {
+				continue
 			}
+			inCmdTest := strings.HasPrefix(rel(root, file), "cmd/outlook/") && strings.HasSuffix(file, "_test.go")
+			if imp == fake && inCmdTest {
+				continue
+			}
+			t.Errorf("%s imports %s: use core's auth/oktad; only cmd/outlook tests may import clienttest", rel(root, file), imp)
 		}
 	})
 }

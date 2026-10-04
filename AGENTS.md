@@ -6,7 +6,7 @@ Rules for AI agents and human contributors working in this repository.
 
 `outlook` is a Go CLI (binary name `outlook`) that lets an autonomous agent read, triage and send corporate email as its own Entra user, from its own mailbox, through Microsoft Graph. It is built on the shared [`agent-cli-core`](https://github.com/stainedhead/agent-cli-core) module (its own repository, specified in its `agent-cli-core-PRD.md`; originated in `snow-cli-PRD.md` section 5) and obtains short-lived delegated Graph tokens from the `agent-okta-d` daemon (provider `msgraph`). It calls only `/me/...` endpoints and applies a client-side policy layer (recipients, rate limits, content filters) and an untrusted-content envelope to inbound mail.
 
-Status: implemented against fakes; the real `agent-okta-d` adapter and real-tenant verification are deferred (see `docs/deferred.md`). The PRD (`specs/archive/261003-outlook-cli/outlook-cli-PRD.md`) is the source of truth for requirements. Its evidence legend (confirmed vs. unconfirmed claims) must be preserved when copying statements into other docs.
+Status: implemented; the `agent-okta-d` adapter (core `auth/oktad`) is wired and tested against the daemon's fake; live-daemon and real-tenant verification are deferred (see `docs/deferred.md`). The PRD (`specs/archive/261003-outlook-cli/outlook-cli-PRD.md`) is the source of truth for requirements. Its evidence legend (confirmed vs. unconfirmed claims) must be preserved when copying statements into other docs.
 
 ## Documentation routing
 
@@ -43,7 +43,7 @@ Planned layout (create directories only when code needs them):
 
 - Shared-core changes (envelope, exit codes, bounds, policy, audit, daemon-client wrapper) are made in [agent-cli-core](https://github.com/stainedhead/agent-cli-core), never copied into this repository.
 - Depend on released semver tags only: no pseudo-versions, no `replace` directives on `main`.
-- `go.mod` requires `github.com/stainedhead/agent-cli-core` at the released tag `v0.1.0` (no `replace`, no pseudo-versions). Do not add `agent-okta-d` to `go.mod`; the daemon client is a stub in the composition root until it publishes `pkg/client`.
+- `go.mod` requires `github.com/stainedhead/agent-cli-core` at the released tag `v0.2.1` (no `replace`, no pseudo-versions). `agent-okta-d` appears in `go.mod` only through core's `auth/oktad` adapter (and the `clienttest` fake in tests); do not import its client directly from application code.
 
 ## Verification (run before every commit)
 

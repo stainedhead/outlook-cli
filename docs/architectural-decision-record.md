@@ -7,11 +7,11 @@ One entry per decision. Status values: Accepted, Superseded, Proposed. Questions
 - Status: Accepted
 - Context: The envelope, exit codes, auth, policy, audit, HTTP client, selftest and skill generation are shared by all the CLIs in the set. The core is tagged v0.1.0.
 - Decision: `go.mod` requires `github.com/stainedhead/agent-cli-core v0.1.0`. No `replace` directive and no pseudo-version. The private-module fetch (`GOPRIVATE=github.com/stainedhead/*`) is already configured in CI. The core is never edited here.
-- Consequences: Behaviour and exit codes match the other CLIs. Gaps in the core are recorded in `requested-core-changes.md` with a local workaround, and fixed upstream. Bumping the version is an ordinary pull request that must pass CI. `agent-okta-d` is not a dependency.
+- Consequences: Behaviour and exit codes match the other CLIs. Gaps in the core are recorded in `requested-core-changes.md` with a local workaround, and fixed upstream. Bumping the version is an ordinary pull request that must pass CI. Bumped to v0.2.1 by ADR-11.
 
 ## ADR-2: Daemon client is a stub in the composition root
 
-- Status: Accepted
+- Status: Superseded by ADR-11
 - Context: The token source needs a client for `agent-okta-d`, which has not published `pkg/client`.
 - Decision: `cmd/outlook` has `newDaemonClient()` returning an implementation of the core's client interface that reports the daemon as unavailable (exit 3, with the core's message naming the socket). Everything downstream uses the core interface. Detail: `adr-daemon-client-stub.md`. The real adapter is deferred until `agent-okta-d` publishes a Go client; the daemon socket path is an unverified assumption.
 - Consequences: The CLI builds, tests and runs without the daemon; any token request fails closed. The swap to the real adapter is a single function change. Authentication paths are tested with the core's `authtest.Fake`.
@@ -68,4 +68,11 @@ One entry per decision. Status values: Accepted, Superseded, Proposed. Questions
 
 - Status: Accepted
 - Decision: `outlook selftest` runs 13 allow/deny rows. Write rows are dry-run requests and denial rows are refused before any Graph write, so nothing is sent. Negative cross-mailbox probes (PRD section 11) are not implemented because they need a real tenant (UA-25).
-- Consequences: With the stub daemon every row fails with exit 1 (the rows report the daemon error). The selftest passes only against a working backend or fakes.
+- Consequences: The selftest passes only against a working daemon and backend, or fakes; without a daemon every row reports the daemon error.
+
+## ADR-11: Daemon client is core's oktad adapter
+
+- Status: Accepted (supersedes ADR-2)
+- Context: `agent-cli-core` v0.2.1 ships `auth/oktad`, the real `auth.DaemonClient` for `agent-okta-d`.
+- Decision: `newDaemonClient()` returns `oktad.New` with a timeout; socket from `AGENT_OKTA_D_SOCKET` else the adapter default; provider `msgraph`. Detail: `adr-daemon-adapter-wired.md`.
+- Consequences: `go.mod` carries `agent-okta-d v0.1.0` indirectly. Verified only against the `clienttest` fake daemon, not a live daemon.

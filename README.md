@@ -2,7 +2,7 @@
 
 `outlook` is a Go CLI that lets an autonomous agent read, triage and send corporate email **as its own Entra user, from its own mailbox**, through Microsoft Graph.
 
-> **Status: implemented, not yet usable end to end.** The command surface, client-side policy, untrusted-content handling, idempotency ledger, audit log and selftest are built and tested against fakes. Two things are not done: the real `agent-okta-d` credential adapter is **deferred** (the daemon has no Go client yet, so every command that needs a token exits 3, "daemon unavailable"), and **nothing has been verified against a real Microsoft 365 tenant** (the real-tenant spikes are a checklist in [`docs/m0-spike-checklist.md`](docs/m0-spike-checklist.md)). See [`docs/deferred.md`](docs/deferred.md) and [`docs/unverified-assumptions.md`](docs/unverified-assumptions.md).
+> **Status: implemented; daemon adapter wired; not yet verified against a live daemon or tenant.** The command surface, client-side policy, untrusted-content handling, idempotency ledger, audit log and selftest are built and tested against fakes. The `agent-okta-d` credential adapter is wired (core `auth/oktad`) and tested against the daemon's fake; without a daemon, token-requiring commands exit 3. **Nothing has been verified against a live daemon or a real Microsoft 365 tenant** (the real-tenant spikes are a checklist in [`docs/m0-spike-checklist.md`](docs/m0-spike-checklist.md)). See [`docs/deferred.md`](docs/deferred.md) and [`docs/unverified-assumptions.md`](docs/unverified-assumptions.md).
 
 **Evidence legend (from the PRD).** ✅ = confirmed against vendor documentation during research (2026-10-03). ⚠️ = not confirmed in vendor docs (engineering judgment, secondary source, or general Graph knowledge). Graph endpoint shapes in the PRD are from general knowledge of Graph v1.0 and need verification before build.
 
@@ -29,7 +29,7 @@ Non-goals: reading people's mailboxes on their behalf, human mode, forwarding, r
 - **Untrusted-content envelope.** Subject, body, display names and attachment names are marked `untrusted`; HTML is converted to text, links are listed separately and defanged, images are never fetched, attachment download is off by default.
 - **Attribution and idempotency.** Subject prefix and footer naming the agent id, `X-Agent-Id` / `X-Agent-Run` headers ⚠️, a local idempotency ledger, and `--dry-run`.
 - **Deliberately absent:** forward, permanent delete, inbox rules, delegates, mailbox settings, contacts, send-on-behalf, any mailbox parameter.
-- **Shared core.** Builds on [agent-cli-core](https://github.com/stainedhead/agent-cli-core), its own repository (output envelope, exit codes, bounds, policy, audit), specified in its `agent-cli-core-PRD.md`; it originated in `snow-cli-PRD.md` section 5. `go.mod` requires `agent-cli-core v0.1.0` (no `replace`). `agent-okta-d` is not a dependency.
+- **Shared core.** Builds on [agent-cli-core](https://github.com/stainedhead/agent-cli-core), its own repository (output envelope, exit codes, bounds, policy, audit), specified in its `agent-cli-core-PRD.md`; it originated in `snow-cli-PRD.md` section 5. `go.mod` requires `agent-cli-core v0.2.1` (no `replace`); `agent-okta-d v0.1.0` comes in indirectly through its `auth/oktad` adapter.
 
 Commands: `whoami`, `folder list`, `mail list|get|search|send|reply|draft create|list|send|delete|mark|move`, `attachment list|get` (download off by default), `selftest`, `version`. Run `outlook --help` for usage. There is no calendar command (calendar is P2, read-only, deferred). Full table in PRD section 6.
 
@@ -47,7 +47,7 @@ Commands: `whoami`, `folder list`, `mail list|get|search|send|reply|draft create
 ## Layout
 
 ```
-cmd/outlook/     composition root (main, wiring, daemon client stub)
+cmd/outlook/     composition root (main, wiring, daemon adapter)
 internal/        domain, usecase, adapter/{cli,graph,policyfile,ledger,auditlog,selftestcfg}, archtest
 docs/            contributor docs: product, technical, ADRs, deferred work, unverified assumptions
 user-docs/       end-user docs: install, configuration, usage, troubleshooting
