@@ -214,101 +214,24 @@ func writeFile(t *testing.T, mode os.FileMode, content string) string {
 	return p
 }
 
-func fakeAccess(writable map[string]bool) func(string) (bool, error) {
-	return func(p string) (bool, error) { return writable[p], nil }
-}
-
-func TestLoadRefusesWritableFile(t *testing.T) {
-	p := writeFile(t, 0o644, valid)
-	_, err := Load(p, withAccess(fakeAccess(map[string]bool{p: true})))
-	var de *domain.Error
-	if !errors.As(err, &de) || de.Cat != output.CategoryPolicyDenied {
-		t.Fatalf("want policy_denied, got %v", err)
-	}
-	if !strings.Contains(err.Error(), "file") {
-		t.Fatal(err)
-	}
-}
-
-func TestLoadRefusesWritableDirectory(t *testing.T) {
-	p := writeFile(t, 0o644, valid)
-	_, err := Load(p, withAccess(fakeAccess(map[string]bool{filepath.Dir(p): true})))
-	var de *domain.Error
-	if !errors.As(err, &de) || de.Cat != output.CategoryPolicyDenied || !strings.Contains(err.Error(), "directory") {
-		t.Fatalf("got %v", err)
-	}
-}
-
-func TestLoadAccessErrorFailsClosed(t *testing.T) {
-	p := writeFile(t, 0o644, valid)
-	_, err := Load(p, withAccess(func(string) (bool, error) { return false, errors.New("boom") }))
-	if err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestLoadOK(t *testing.T) {
-	p := writeFile(t, 0o444, valid)
-	got, err := Load(p, withAccess(fakeAccess(nil)))
-	if err != nil || got.Mailbox != "a@corp.example.com" {
-		t.Fatalf("%v %+v", err, got)
-	}
-}
-
-func TestLoadAllowWritable(t *testing.T) {
-	p := writeFile(t, 0o666, valid)
-	if _, err := Load(p, AllowWritable(), withAccess(fakeAccess(map[string]bool{p: true}))); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestLoadMissingAndDirectoryAndEmptyAndHuge(t *testing.T) {
-	if _, err := Load(filepath.Join(t.TempDir(), "nope.yaml"), AllowWritable()); err == nil {
+	if _, err := Load(filepath.Join(t.TempDir(), "nope.yaml"), AllowUntrusted()); err == nil {
 		t.Fatal("missing file must fail")
 	}
-	if _, err := Load(t.TempDir(), AllowWritable()); err == nil {
+	if _, err := Load(t.TempDir(), AllowUntrusted()); err == nil {
 		t.Fatal("directory must fail")
 	}
-	if _, err := Load(writeFile(t, 0o600, ""), AllowWritable()); err == nil {
+	if _, err := Load(writeFile(t, 0o600, ""), AllowUntrusted()); err == nil {
 		t.Fatal("empty file must fail")
 	}
-	if _, err := Load(writeFile(t, 0o600, strings.Repeat("#", maxPolicyBytes+1)), AllowWritable()); err == nil {
+	if _, err := Load(writeFile(t, 0o600, strings.Repeat("#", maxPolicyBytes+1)), AllowUntrusted()); err == nil {
 		t.Fatal("huge file must fail")
-	}
-}
-
-// Real access(2): a 0644 file owned by the test user is writable by it.
-func TestLoadRealAccessWritable(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root can write everything")
-	}
-	p := writeFile(t, 0o644, valid)
-	if _, err := Load(p); err == nil {
-		t.Fatal("agent-writable policy must be refused")
-	}
-}
-
-func TestRealAccessReadOnly(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root can write everything")
-	}
-	dir := t.TempDir()
-	f := filepath.Join(dir, "p.yaml")
-	if err := os.WriteFile(f, []byte(valid), 0o444); err != nil {
-		t.Fatal(err)
-	}
-	w, err := writableByMe(f)
-	if err != nil || w {
-		t.Fatalf("0444 file: writable=%v err=%v", w, err)
-	}
-	if _, err := writableByMe(filepath.Join(dir, "missing")); err == nil {
-		t.Fatal("missing path must error")
 	}
 }
 
 func TestProvider(t *testing.T) {
 	p := writeFile(t, 0o444, valid)
-	pr := NewProvider(p, withAccess(fakeAccess(nil)))
+	pr := NewProvider(p, AllowUntrusted())
 	a, err := pr.Policy(context.Background())
 	if err != nil {
 		t.Fatal(err)

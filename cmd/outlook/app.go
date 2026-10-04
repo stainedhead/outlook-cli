@@ -44,8 +44,9 @@ const (
 // real network).
 type appConfig struct {
 	PolicyPath string
-	// PolicyOpts are policyfile load options (tests use AllowWritable because
-	// a temp directory is writable; production passes none).
+	// PolicyOpts are policyfile load options (tests use AllowUntrusted because
+	// a temp directory is owned by the test user; a release build passes none,
+	// FR-R2).
 	PolicyOpts []policyfile.Option
 	AgentID    string
 	RunID      string
@@ -75,7 +76,11 @@ func prodConfig() appConfig {
 		RunID:      os.Getenv(envRunID),
 		Daemon:     newDaemonClient(),
 		Clock:      systemClock{},
+		PolicyOpts: devPolicyOpts(os.Getenv),
 	}
+	// OUTLOOK_POLICY may point elsewhere, but the target must still pass the
+	// ownership check in policyfile.Load: an agent-authored file is refused
+	// whatever its mode (FR-R2).
 	if p := os.Getenv(envPolicy); p != "" {
 		c.PolicyPath = p
 	}

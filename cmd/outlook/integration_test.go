@@ -207,7 +207,7 @@ func newITEnv(t *testing.T, policyEdit func(string) string) *itEnv {
 		t.Fatal(err)
 	}
 	return &itEnv{t: t, g: g, audit: auditPath, cfg: appConfig{
-		PolicyPath: polPath, PolicyOpts: []policyfile.Option{policyfile.AllowWritable()},
+		PolicyPath: polPath, PolicyOpts: []policyfile.Option{policyfile.AllowUntrusted()},
 		AgentID: "agent-it", RunID: "run-it", GraphBaseURL: srv.URL + "/v1.0",
 		Daemon: authtest.New(authtest.Valid),
 	}}
