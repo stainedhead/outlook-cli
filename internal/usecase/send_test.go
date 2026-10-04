@@ -177,6 +177,24 @@ func TestSendExternalDraftOnlyCreatesDraft(t *testing.T) {
 	}
 }
 
+func TestSendExternalDraftOnlyDryRunDoesNotCreateDraft(t *testing.T) {
+	e := newEnv(t, func(p *domain.Policy) { p.Send.Recipients.External = domain.ExternalDraftOnly })
+	req := okSend()
+	req.To = []string{"x@partner.com"}
+	req.IdempotencyKey = "draft-preview"
+	req.DryRun = true
+	res, err := e.cmds.Send(context.Background(), req)
+	if err != nil || !res.DryRun || res.DraftID != "" || res.Decision.Mode != domain.DecisionDraftOnly {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	if e.w.total() != 0 || len(e.l.entries) != 0 {
+		t.Fatal("draft-only dry run wrote to Graph or reserved a key")
+	}
+	if a := e.lastAudit(t); a.Outcome != "dry_run" || a.PolicyDecision != "draft_only:send.recipients.external" {
+		t.Errorf("audit = %+v", a)
+	}
+}
+
 func TestSendDraftOnlyWithKeyIsIdempotent(t *testing.T) {
 	e := newEnv(t, func(p *domain.Policy) { p.Send.Recipients.External = domain.ExternalDraftOnly })
 	req := okSend()
@@ -664,6 +682,18 @@ func TestReplyExternalDraftOnlyCreatesDraft(t *testing.T) {
 	}
 	if e.w.drafts[0].Subject != "[agent] Re: Hi" {
 		t.Errorf("subject %q", e.w.drafts[0].Subject)
+	}
+}
+
+func TestReplyExternalDraftOnlyDryRunDoesNotCreateDraft(t *testing.T) {
+	e := newEnv(t, func(p *domain.Policy) { p.Send.Recipients.External = domain.ExternalDraftOnly })
+	e.addMessage("ext", "f-inbox", func(m *domain.RawMessage) { m.From = domain.Address{Address: "x@partner.com"}; m.Subject = "Hi" })
+	res, err := e.cmds.Reply(context.Background(), ReplyRequest{MessageID: "ext", Body: "ok", IdempotencyKey: "reply-preview", DryRun: true})
+	if err != nil || !res.DryRun || res.DraftID != "" || res.Decision.Mode != domain.DecisionDraftOnly {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	if e.w.total() != 0 || len(e.l.entries) != 0 {
+		t.Fatal("draft-only reply dry run wrote to Graph or reserved a key")
 	}
 }
 

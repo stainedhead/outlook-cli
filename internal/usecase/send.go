@@ -129,6 +129,11 @@ func (s *service) dispatch(ctx context.Context, c *call, p domain.Policy, a disp
 	case domain.DecisionDryRunOnly:
 		a.dryRun = true
 	case domain.DecisionDraftOnly:
+		if a.dryRun {
+			res.DryRun = true
+			c.outcome = outcomeDryRun
+			return res, nil
+		}
 		return s.deliver(ctx, c, p, a, false)
 	}
 	if a.dryRun {
