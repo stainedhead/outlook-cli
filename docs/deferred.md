@@ -42,4 +42,3 @@ Not adopted in the daemon-adapter change; the CLI keeps its local workarounds un
 | Trusted-file check | `policyfile` ownership check (item 15); also reusable for the socket ownership check above |
 | Vendor error code from body | Header-based 403 code (items 1, 16, 19) |
 | Nested docgen | Current skill generation |
-| Pass-through of categorized token errors | `daemonSource` wrapper (item 20) |

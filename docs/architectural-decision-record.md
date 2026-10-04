@@ -7,7 +7,7 @@ One entry per decision. Status values: Accepted, Superseded, Proposed. Questions
 - Status: Accepted
 - Context: The envelope, exit codes, auth, policy, audit, HTTP client, selftest and skill generation are shared by all the CLIs in the set. The core is tagged v0.1.0.
 - Decision: `go.mod` requires `github.com/stainedhead/agent-cli-core v0.1.0`. No `replace` directive and no pseudo-version. The private-module fetch (`GOPRIVATE=github.com/stainedhead/*`) is already configured in CI. The core is never edited here.
-- Consequences: Behaviour and exit codes match the other CLIs. Gaps in the core are recorded in `requested-core-changes.md` with a local workaround, and fixed upstream. Bumping the version is an ordinary pull request that must pass CI. Bumped to v0.2.0 by ADR-11.
+- Consequences: Behaviour and exit codes match the other CLIs. Gaps in the core are recorded in `requested-core-changes.md` with a local workaround, and fixed upstream. Bumping the version is an ordinary pull request that must pass CI. Bumped to v0.2.1 by ADR-11.
 
 ## ADR-2: Daemon client is a stub in the composition root
 
@@ -73,6 +73,6 @@ One entry per decision. Status values: Accepted, Superseded, Proposed. Questions
 ## ADR-11: Daemon client is core's oktad adapter
 
 - Status: Accepted (supersedes ADR-2)
-- Context: `agent-cli-core` v0.2.0 ships `auth/oktad`, the real `auth.DaemonClient` for `agent-okta-d`.
-- Decision: `newDaemonClient()` returns `oktad.New` with a timeout; socket from `AGENT_OKTA_D_SOCKET` else the adapter default; provider `msgraph`. A small wrapper re-surfaces the adapter's transient (exit 8) and access errors that core's token source would otherwise fold into exit 3. Detail: `adr-daemon-adapter-wired.md`.
+- Context: `agent-cli-core` v0.2.1 ships `auth/oktad`, the real `auth.DaemonClient` for `agent-okta-d`.
+- Decision: `newDaemonClient()` returns `oktad.New` with a timeout; socket from `AGENT_OKTA_D_SOCKET` else the adapter default; provider `msgraph`. Detail: `adr-daemon-adapter-wired.md`.
 - Consequences: `go.mod` carries `agent-okta-d v0.1.0` indirectly. Verified only against the `clienttest` fake daemon, not a live daemon.

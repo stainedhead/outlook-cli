@@ -5,11 +5,15 @@ package main
 // httptest Graph fake from integration_test.go. Nothing here sends real mail.
 
 import (
+	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/stainedhead/agent-cli-core/auth"
+	"github.com/stainedhead/agent-cli-core/output"
 	"github.com/stainedhead/agent-okta-d/pkg/client/clienttest"
 )
 
@@ -128,5 +132,21 @@ func TestE2EDegradedAndRetryHintExit8(t *testing.T) {
 				t.Error("no Graph request should be made without a token")
 			}
 		})
+	}
+}
+
+func TestE2ECancelledContextIsGeneralExit1(t *testing.T) {
+	d := clienttest.New(t)
+	d.SetCredential(graphProvider, e2eCred())
+	t.Setenv("AGENT_OKTA_D_SOCKET", d.SocketPath())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	src, err := auth.NewDaemonTokenSource(newDaemonClient(), graphProvider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = src.Token(ctx)
+	if !errors.Is(err, context.Canceled) || output.ExitOf(err) != output.ExitCode(1) {
+		t.Errorf("err = %v, exit %d; want context.Canceled, exit 1", err, output.ExitOf(err))
 	}
 }

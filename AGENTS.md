@@ -43,7 +43,7 @@ Planned layout (create directories only when code needs them):
 
 - Shared-core changes (envelope, exit codes, bounds, policy, audit, daemon-client wrapper) are made in [agent-cli-core](https://github.com/stainedhead/agent-cli-core), never copied into this repository.
 - Depend on released semver tags only: no pseudo-versions, no `replace` directives on `main`.
-- `go.mod` requires `github.com/stainedhead/agent-cli-core` at the released tag `v0.2.0` (no `replace`, no pseudo-versions). `agent-okta-d` appears in `go.mod` only through core's `auth/oktad` adapter (and the `clienttest` fake in tests); do not import its client directly from application code.
+- `go.mod` requires `github.com/stainedhead/agent-cli-core` at the released tag `v0.2.1` (no `replace`, no pseudo-versions). `agent-okta-d` appears in `go.mod` only through core's `auth/oktad` adapter (and the `clienttest` fake in tests); do not import its client directly from application code.
 
 ## Verification (run before every commit)
 

@@ -1,12 +1,12 @@
 # Technical Details
 
-Language and toolchain: Go 1.27, `CGO_ENABLED=0`, static binary `outlook`. Dependencies: `github.com/stainedhead/agent-cli-core v0.2.0` (envelope, exit codes, auth, `auth/oktad`, httpx, audit, selftest, docgen) and a YAML library (`goccy/go-yaml`). `agent-okta-d v0.1.0` is an indirect requirement (the adapter's client; its `clienttest` fake daemon is used in tests).
+Language and toolchain: Go 1.27, `CGO_ENABLED=0`, static binary `outlook`. Dependencies: `github.com/stainedhead/agent-cli-core v0.2.1` (envelope, exit codes, auth, `auth/oktad`, httpx, audit, selftest, docgen) and a YAML library (`goccy/go-yaml`). `agent-okta-d v0.1.0` is an indirect requirement (the adapter's client; its `clienttest` fake daemon is used in tests).
 
 ## Package layout (Clean Architecture)
 
 | Package | Role | May import |
 |---|---|---|
-| `cmd/outlook` | Composition root: `main.go` (build stamps, signals), `app.go` (builds adapters, use cases, config and env), `daemon.go` (`newDaemonClient()` returns core's `oktad` adapter; `daemonSource` keeps its exit-8 and access errors visible) | everything |
+| `cmd/outlook` | Composition root: `main.go` (build stamps, signals), `app.go` (builds adapters, use cases, config and env), `daemon.go` (`newDaemonClient()` returns core's `oktad` adapter) | everything |
 | `internal/adapter/cli` | Command table, flag parsing, presenter (wraps untrusted fields), one envelope per run, generated skill | usecase, domain, core `output` |
 | `internal/adapter/graph` | Graph client over core `httpx`; `/me/...` only; read, write, paging, Sent Items probe | usecase ports, domain |
 | `internal/adapter/policyfile` | Strict YAML loader, ownership trust check, content filters (`secret_patterns`, `classification_markers`) | usecase, domain |

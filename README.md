@@ -29,7 +29,7 @@ Non-goals: reading people's mailboxes on their behalf, human mode, forwarding, r
 - **Untrusted-content envelope.** Subject, body, display names and attachment names are marked `untrusted`; HTML is converted to text, links are listed separately and defanged, images are never fetched, attachment download is off by default.
 - **Attribution and idempotency.** Subject prefix and footer naming the agent id, `X-Agent-Id` / `X-Agent-Run` headers ⚠️, a local idempotency ledger, and `--dry-run`.
 - **Deliberately absent:** forward, permanent delete, inbox rules, delegates, mailbox settings, contacts, send-on-behalf, any mailbox parameter.
-- **Shared core.** Builds on [agent-cli-core](https://github.com/stainedhead/agent-cli-core), its own repository (output envelope, exit codes, bounds, policy, audit), specified in its `agent-cli-core-PRD.md`; it originated in `snow-cli-PRD.md` section 5. `go.mod` requires `agent-cli-core v0.2.0` (no `replace`); `agent-okta-d v0.1.0` comes in indirectly through its `auth/oktad` adapter.
+- **Shared core.** Builds on [agent-cli-core](https://github.com/stainedhead/agent-cli-core), its own repository (output envelope, exit codes, bounds, policy, audit), specified in its `agent-cli-core-PRD.md`; it originated in `snow-cli-PRD.md` section 5. `go.mod` requires `agent-cli-core v0.2.1` (no `replace`); `agent-okta-d v0.1.0` comes in indirectly through its `auth/oktad` adapter.
 
 Commands: `whoami`, `folder list`, `mail list|get|search|send|reply|draft create|list|send|delete|mark|move`, `attachment list|get` (download off by default), `selftest`, `version`. Run `outlook --help` for usage. There is no calendar command (calendar is P2, read-only, deferred). Full table in PRD section 6.
 
