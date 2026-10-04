@@ -13,4 +13,4 @@ The command surface, policy engine, untrusted-content handling, idempotency ledg
 - **No command can reach Graph.** The real `agent-okta-d` adapter is deferred: the daemon has not published a Go client. The composition root uses a stub that reports the daemon as unavailable, so every command that needs a token exits 3. Commands that need no token (`help`, `version`, `skill`) work.
 - **Nothing has been verified against a real Microsoft 365 tenant.** Every Graph endpoint shape and tenant behaviour is an explicit, tracked assumption (`unverified-assumptions.md`). The real-tenant spikes (M0) are written as a checklist (`m0-spike-checklist.md`) but have not been run.
 
-Sources: `outlook-cli-PRD.md` section 1 (Draft v0.2) and `specs/261003-outlook-cli/spec.md`. Deferred and out-of-scope items: `deferred.md`.
+Sources: `outlook-cli-PRD.md` section 1 (Draft v0.2) and `specs/archive/261003-outlook-cli/spec.md`. Deferred and out-of-scope items: `deferred.md`.

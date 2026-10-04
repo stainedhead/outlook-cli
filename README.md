@@ -65,7 +65,7 @@ AGENTS.md        rules for agents and contributors
   - [Exit codes](user-docs/exit-codes.md)
   - [Troubleshooting](user-docs/troubleshooting.md) (including daemon unavailable, exit 3)
 - Contributor docs: [`docs/`](docs/) - [product summary](docs/product-summary.md), [product details](docs/product-details.md), [technical details](docs/technical-details.md), [ADRs](docs/architectural-decision-record.md), [deferred work](docs/deferred.md), [unverified assumptions](docs/unverified-assumptions.md), [requested core changes](docs/requested-core-changes.md)
-- Requirements: the PRD under [`specs/261003-outlook-cli/`](specs/261003-outlook-cli/)
+- Requirements: the PRD under [`specs/archive/261003-outlook-cli/`](specs/archive/261003-outlook-cli/)
 - Contributor and agent rules: [`AGENTS.md`](AGENTS.md)
 
 ## Development

@@ -1,6 +1,6 @@
 # Unverified assumptions
 
-Everything below is marked as unconfirmed (a warning sign) in `specs/261003-outlook-cli/outlook-cli-PRD.md`, or follows from a Graph endpoint shape taken from general knowledge of Graph v1.0. None of it has been checked against a real tenant. Each item is an explicit assumption in the code (a comment beginning `ASSUMPTION(unverified against a real tenant)`) and, for Graph shapes, in a test named `TestAssumed...`. The code and test columns point at them.
+Everything below is marked as unconfirmed (a warning sign) in `specs/archive/261003-outlook-cli/outlook-cli-PRD.md`, or follows from a Graph endpoint shape taken from general knowledge of Graph v1.0. None of it has been checked against a real tenant. Each item is an explicit assumption in the code (a comment beginning `ASSUMPTION(unverified against a real tenant)`) and, for Graph shapes, in a test named `TestAssumed...`. The code and test columns point at them.
 
 How to use this table: the "Code reference" and "Test reference" columns name the code and tests that carry each assumption. The "Verified by" column names the M0 spike (see `m0-spike-checklist.md`) that settles the item. An item stays here until a spike report confirms or refutes it; refuted items move to `requested-core-changes.md` or a PRD change.
 

@@ -1,6 +1,6 @@
 # Product Details
 
-Authoritative requirements: the PRD and `specs/261003-outlook-cli/spec.md`. This page describes what the built product does. Items marked "unverified" depend on Graph or tenant behaviour that has not been checked against a real tenant (see `unverified-assumptions.md`).
+Authoritative requirements: the PRD and `specs/archive/261003-outlook-cli/spec.md`. This page describes what the built product does. Items marked "unverified" depend on Graph or tenant behaviour that has not been checked against a real tenant (see `unverified-assumptions.md`).
 
 ## Goals and non-goals
 
