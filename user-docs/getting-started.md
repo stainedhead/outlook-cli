@@ -44,7 +44,7 @@ $ outlook mail send --help
 $ outlook skill         # prints the agent skill document (Markdown)
 ```
 
-Install a policy (administrator, root-owned, read-only for the agent user), then:
+Install a policy (administrator, owned by root, in a root-owned directory not writable by others, see [Configuration](configuration.md)), then:
 
 ```
 $ OUTLOOK_POLICY=/etc/agent-cli/outlook.policy.yaml outlook whoami
@@ -55,10 +55,10 @@ Today this prints the exit-3 error described in [Troubleshooting](troubleshootin
 ## Where things are written
 
 - Audit log: the `audit.path` from the policy (JSON lines, one per command, no message bodies).
-- Idempotency ledger: `outlook.idempotency.json`, in the same directory as the audit log.
+- Idempotency ledger: `outlook.idempotency.json`, in the same directory as the audit log, plus the page-token key `outlook.pagekey`.
 - Attachments, only if enabled: under `read.attachments.out_dir`.
 
-The audit directory must be writable by the agent user; the policy file and its directory must not be.
+The audit directory must be private to the agent user (owned by it, mode 0700); the policy file and its directory must be root-owned and not writable by it.
 
 ## Next
 

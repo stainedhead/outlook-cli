@@ -34,20 +34,20 @@ Absent on purpose: forward, delete of non-drafts, rules, delegates, settings, co
 
 ## Send behaviour
 
-1. Policy is loaded first; a missing, invalid or agent-writable policy blocks every command.
+1. Policy is loaded first; a missing, invalid or not-root-authored policy (ownership check on file and ancestors) blocks every command.
 2. The `mailbox` policy value is compared with `GET /me` once per run; a mismatch is refused (unverified).
 3. Recipients are lower-cased and de-duplicated. The policy decision is one of allow, dry_run_only, draft_only, deny. The deciding rule id is written to the audit log.
-4. The subject prefix and footer (with `{agent_id}`) are applied, and `X-Agent-Id`, `X-Agent-Run` and idempotency headers are added (header survival unverified).
+4. The subject prefix and footer (with `{agent_id}`) are applied, and `X-Agent-Id`, `X-Agent-Run` and `X-Agent-Idempotency-Key` headers are added (header survival unverified). Draft send and reply carry no such headers on the send call and skip the Sent Items probe.
 5. With `--dry-run`, or policy `dry_run_only`, nothing is sent and the rendered message is returned. With `external: draft_only` and an external recipient, a draft is saved instead.
 6. The idempotency ledger reserves the key before the POST. A repeated key returns `already_sent`; an ambiguous earlier failure returns a conflict (exit 7). Writes are never auto-retried.
 
 ## Client-side policy
 
-One YAML file, default `/etc/agent-cli/outlook.policy.yaml` (override `OUTLOOK_POLICY`). Strict (unknown and duplicate keys rejected), fail closed, and refused if the agent user can write the file or its directory. Fields and a sample are in `user-docs/configuration.md`. The policy is a guardrail; it is not the security boundary (Entra scopes, Exchange mail flow and Conditional Access are).
+One YAML file, default `/etc/agent-cli/outlook.policy.yaml` (override `OUTLOOK_POLICY`). Strict (unknown and duplicate keys rejected), fail closed, and refused unless the file and every ancestor directory are owned by root (or a trusted uid) and not group or world writable. Fields and a sample are in `user-docs/configuration.md`. The policy is a guardrail; it is not the security boundary (Entra scopes, Exchange mail flow and Conditional Access are).
 
 ## Output and exit codes
 
-Success: `{"ok":true,"data":...,"meta":{"truncated":false,"next_offset":null,"count":N}}`. Failure: `{"ok":false,"error":{"code","message","hint"}}`. Exit codes 0-9 come from the core: 0 ok, 1 general, 2 usage, 3 auth, 4 forbidden, 5 not_found, 6 policy_denied, 7 conflict, 8 rate_limited, 9 validation. List commands return `data` as a JSON array; a Graph continuation is a final element `{"next_page_token":"..."}` (core change request 2 and 13).
+Success: `{"ok":true,"data":...,"meta":{"truncated":false,"next_offset":null,"count":N}}`. Failure: `{"ok":false,"error":{"code","message","hint"}}`. Exit codes 0-9 come from the core: 0 ok, 1 general, 2 usage, 3 auth, 4 forbidden, 5 not_found, 6 policy_denied, 7 conflict, 8 rate_limited, 9 validation. List commands return `data` as a JSON array; a Graph continuation is a final element `{"next_page_token":"..."}` (core change requests 2, 13 and 18). The token is signed and bound to the command, folder and query. `send`, `reply` and `draft send` results carry `already_drafted`, `prefix_applied` and optional `warnings`. See `technical-details.md` for the threat model.
 
 ## Delivery state
 

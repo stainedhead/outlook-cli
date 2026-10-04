@@ -4,10 +4,10 @@
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `OUTLOOK_POLICY` | `/etc/agent-cli/outlook.policy.yaml` | Path of the policy file |
+| `OUTLOOK_POLICY` | `/etc/agent-cli/outlook.policy.yaml` | Path of the policy file. The file it points to must pass the same ownership check as the default |
 | `AGENT_ID` | the policy `profile` | Agent identifier written to audit records, message headers and the footer |
 | `AGENT_RUN_ID` | random `run-<hex>` per process | Run identifier for audit and the `X-Agent-Run` header |
-| `AGENT_OKTA_D_SOCKET` | `/run/agent-okta-d/agent-okta-d.sock` | Socket where the credential daemon is expected |
+| `AGENT_OKTA_D_SOCKET` | `/run/agent-okta-d/agent-okta-d.sock` | Socket where the credential daemon is expected (its ownership is not checked yet) |
 
 Only `OUTLOOK_POLICY` could be considered stable; the other names and the default socket path are choices of this build and are unverified against the daemon's own deployment. There are no credentials in the environment or on disk: tokens come only from the daemon.
 
@@ -23,7 +23,13 @@ Only `OUTLOOK_POLICY` could be considered stable; the other names and the defaul
 
 A single YAML document. Installation rules:
 
-- Install it where only an administrator can change it: root-owned, read-only for the agent user, and in a directory the agent user cannot write. If the agent user can write the file or its directory, every command fails with exit 6.
+- Install it where only an administrator can change it. The file and every directory above it must be owned by root, and none may be writable by group or others. Ownership is what is checked, not whether you can write it: a file owned by the agent user is refused even if it is read-only. Running `outlook` as root is also refused. Symlinks are allowed only if their owner and every directory they pass through are trusted. A failed check is exit 6 and every command stops.
+- Typical installation:
+
+  ```
+  sudo install -d -o root -m 0755 /etc/agent-cli
+  sudo install -o root -m 0644 outlook.policy.yaml /etc/agent-cli/outlook.policy.yaml
+  ```
 - Unknown keys, duplicate keys, an empty file, more than one YAML document, or a file over 1 MiB are rejected (exit 9). A missing file is also exit 9. A policy that cannot be loaded blocks every command; there is no fallback policy.
 - The policy is read once per run.
 - Omitted settings fall to the safest value, except the numeric bounds noted below.
@@ -39,6 +45,7 @@ A single YAML document. Installation rules:
 | `read.max_body_bytes` | no | integer; default 16000 | Upper bound on message body text returned |
 | `read.html_to_text` | no | boolean; default true | |
 | `read.defang_links` | no | boolean; default true | |
+| `read.auth_results_authserv_ids` | no | list of single tokens, for example `[mx.example.com]`; default empty | Authentication-Results headers are believed only when their authserv-id (the text before the first `;`, case-insensitive) is in this list. With the list empty, `auth_results` reports `spf`, `dkim` and `dmarc` as `unverified`. It is a policy key rather than an environment variable because the environment is controllable by the agent |
 | `read.attachments` | no | `{download: deny}` (default), or `{allow_types, max_bytes, out_dir}` | All three of the second form are required together. `allow_types` are bare extensions (`pdf`). `out_dir` is an absolute path; `attachment get --out` must resolve inside it |
 | `send.mode` | no | `allow`, `dry_run_only`, `deny`; default `deny` | `dry_run_only` renders but never sends |
 | `send.recipients.allow_domains` | no | list of bare domains | Recipients in these domains are allowed |
@@ -55,7 +62,7 @@ A single YAML document. Installation rules:
 | `send.rate.per_hour`, `send.rate.per_day` | no | integer; 0 or omitted means no limit | Counted from the idempotency ledger across runs on this host |
 | `limits.max_results` | no | integer; default 100 | Cap on list size |
 | `limits.max_writes_per_run` | no | integer; default 20; explicit `0` denies all writes | |
-| `audit.path` | yes | absolute path | JSON-lines audit log. The directory is created (mode 0700) if missing and must be writable by the agent user |
+| `audit.path` | yes | absolute path | JSON-lines audit log. The directory is created (mode 0700) if missing, must be writable by the agent user, and must be owned by the agent user with mode 0700 because the idempotency ledger and the page-token key live there too. A shared directory such as a 0755 log directory is refused (exit 1); give the ledger a private directory |
 
 ### Sample policy
 
@@ -99,10 +106,13 @@ One JSON line per command, for example:
 {"schema_version":1,"ts":"2026-10-03T23:47:18.832279Z","tool":"outlook","agent_id":"agent","run_id":"run-eeb078445bf45ee7","verb":"read","resource":"mail.list","outcome":"error","duration":"9µs","policy_decision":"allow"}
 ```
 
-`policy_decision` is `allow` or `deny:<rule-id>`. Message bodies are not recorded. If the audit log cannot be written, the command fails (it never runs unrecorded).
+`policy_decision` is `allow` or `deny:<rule-id>`. On sends it also carries `;recipient_count=N;recipient_hash=H;message_id=ID;warnings=a,b` (the hash is 32 hex characters of the recipient set; no addresses, subjects or bodies are recorded). `http_status` is filled in for failed Graph calls. If the audit log cannot be written, the command fails (it never runs unrecorded).
 
 ### Safety notes
 
-- Keep the audit directory writable by the agent user and the policy directory not.
+- Keep the audit directory private to the agent user (0700) and the policy directory not writable by it.
+- The page-token key `outlook.pagekey` (mode 0600) is created next to the idempotency ledger on first use. Deleting it invalidates outstanding page tokens; callers simply restart the listing.
+- Rate caps and the ledger are guardrails against a runaway agent, not protection against a hostile local user who can edit those files.
+- `--body-file` can read any file the agent user can read (up to 4 MiB). There is no directory restriction yet; do not rely on it to keep files private.
 - Remove or edit the idempotency ledger only as an administrator; a `pending` entry means an earlier send's outcome is unknown and later sends with that key fail with exit 7.
 - Attachment download stays off until the policy enables it. Downloaded files are only written into the quarantine directory and are never opened by the tool.
