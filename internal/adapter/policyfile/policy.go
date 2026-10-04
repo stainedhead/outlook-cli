@@ -343,31 +343,56 @@ func validAddress(a string) bool {
 type Option func(*loadConfig)
 
 type loadConfig struct {
-	allowWritable bool
-	access        func(string) (bool, error)
+	allowUntrusted bool
+	trustedUIDs    map[uint32]bool
+	env            trustEnv
 }
 
-// AllowWritable disables the refusal of a policy file or directory the current
-// user can write. It exists for development and tests; production composition
-// must not set it.
-func AllowWritable() Option { return func(c *loadConfig) { c.allowWritable = true } }
+// AllowUntrusted disables the ownership check (FR-R2). It exists for
+// development and tests; the production composition must never set it
+// without the explicit outlookdev build tag.
+func AllowUntrusted() Option { return func(c *loadConfig) { c.allowUntrusted = true } }
 
-func withAccess(f func(string) (bool, error)) Option {
-	return func(c *loadConfig) { c.access = f }
+// WithTrustedUIDs additionally trusts files owned by the given uids (root is
+// always trusted). The effective uid is never trusted.
+func WithTrustedUIDs(uids ...uint32) Option {
+	return func(c *loadConfig) {
+		for _, u := range uids {
+			c.trustedUIDs[u] = true
+		}
+	}
 }
 
-// Load reads and parses the policy file at path. Unless AllowWritable is set it
-// refuses (policy_denied, exit 6) a file or containing directory that the
-// current user can write, because the agent must not be able to edit its own
-// guardrails.
+func withTrustEnv(lstat func(string) (statInfo, error), fstat func(*os.File) (statInfo, error), euid uint32) Option {
+	return func(c *loadConfig) { c.env = trustEnv{lstat: lstat, fstat: fstat, euid: euid} }
+}
+
+// Load reads and parses the policy file at path. Unless AllowUntrusted is set
+// it refuses (policy_denied, exit 6) a policy whose file, symlinks or parent
+// directories are not owned by root (or a configured trusted uid other than
+// the effective uid) or are writable by group or others, because the agent
+// must not be able to edit its own guardrails (FR-R2). The file is read from
+// the descriptor that was verified.
 func Load(path string, opts ...Option) (domain.Policy, error) {
-	cfg := loadConfig{access: writableByMe}
+	cfg := loadConfig{
+		trustedUIDs: map[uint32]bool{},
+		env:         trustEnv{lstat: realLstat, fstat: realFstat, euid: realEUID()},
+	}
 	for _, o := range opts {
 		o(&cfg)
 	}
-	f, err := os.Open(path)
+	var f *os.File
+	var err error
+	if cfg.allowUntrusted {
+		f, err = os.Open(path)
+		if err != nil {
+			err = domain.NewValidation("policy: cannot read " + path).WithHint(hint).WithCause(err)
+		}
+	} else {
+		f, err = cfg.openTrusted(path)
+	}
 	if err != nil {
-		return domain.Policy{}, domain.NewValidation("policy: cannot read " + path).WithHint(hint).WithCause(err)
+		return domain.Policy{}, err
 	}
 	defer func() { _ = f.Close() }()
 	data, err := io.ReadAll(io.LimitReader(f, maxPolicyBytes+1))
@@ -376,19 +401,6 @@ func Load(path string, opts ...Option) (domain.Policy, error) {
 	}
 	if len(data) > maxPolicyBytes {
 		return domain.Policy{}, invalid("file exceeds %d bytes", maxPolicyBytes)
-	}
-	if !cfg.allowWritable {
-		for _, t := range []struct{ what, path string }{{"file", path}, {"directory", filepath.Dir(path)}} {
-			w, err := cfg.access(t.path)
-			if err != nil {
-				return domain.Policy{}, domain.NewPolicyDenied("policy: cannot check permissions of " + t.what + " " + t.path).
-					WithHint("the policy file and its directory must be checkable and read-only for the agent user").WithCause(err)
-			}
-			if w {
-				return domain.Policy{}, domain.NewPolicyDenied("policy " + t.what + " " + t.path + " is writable by the current user").
-					WithHint("install the policy where only an administrator can change it (root-owned, agent user read-only)")
-			}
-		}
 	}
 	return Parse(data)
 }
