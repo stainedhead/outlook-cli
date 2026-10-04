@@ -75,3 +75,7 @@ make fmt lint test build     # also: make check, make race, make cross, make ski
 ```
 
 Requires Go 1.27 and golangci-lint. The core module is private: set `GOPRIVATE=github.com/stainedhead/*` and have repository access. Never commit credentials.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
