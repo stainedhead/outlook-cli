@@ -324,7 +324,7 @@ BLD-1 to BLD-6 are in place before the first milestone that merges Go code. The 
 | DEP-5 | ⚠️ `GITHUB_TOKEN` is scoped to the repository running the workflow, so it cannot read a different private repository's contents (unconfirmed). If `agent-cli-core` or `agent-okta-d` ever become private, they must be published through GitHub Packages with consumer repositories granted read on the package, decided before any visibility change. GitHub Packages has no Go module registry ⚠️ (unconfirmed). |
 | DEP-6 | Bumping the `agent-cli-core` version is an ordinary PR and must pass CI. |
 
-**Milestone note.** `outlook` cannot compile against `agent-cli-core` until the core has a tagged release, which itself needs `agent-okta-d` to tag a release containing `pkg/client`. No code or releases exist yet, so `go.mod` has no `require` for the core.
+**Milestone note.** `outlook` cannot compile against `agent-cli-core` until the core has a tagged release, which itself needs `agent-okta-d` to tag a release containing `pkg/client`. `agent-cli-core` v0.1.0 is now tagged, so `go.mod` requires it at `v0.1.0`; the daemon client stays a stub in the composition root (`newDaemonClient()` reports the daemon unavailable, exit 3) until `agent-okta-d` publishes `pkg/client`, and `agent-okta-d` is not added to `go.mod`.
 
 ### 16.8 Open items (CI/CD)
 
