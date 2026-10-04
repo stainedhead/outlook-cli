@@ -3,6 +3,7 @@ package ledger
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,16 +18,29 @@ import (
 // Quarantine is the file-backed usecase.QuarantineStore. It writes bytes and
 // nothing else: the content is never opened, executed or interpreted.
 type Quarantine struct {
-	// Root, when set, is the policy read.attachments.out_dir. Save refuses an
-	// outDir that does not resolve (symlinks included) to Root or below. When
-	// empty the caller (the use case) has already validated outDir against
-	// policy and only the outDir itself is resolved.
+	// Root is the policy read.attachments.out_dir. Save refuses an outDir that
+	// does not resolve (symlinks included) to Root or below, and checks this
+	// BEFORE creating any directory. An empty Root is invalid: use
+	// NewQuarantine, which rejects it at construction; the zero value fails
+	// closed in Save.
 	Root string
+}
+
+// NewQuarantine returns a Quarantine confined to root (FR-R12).
+func NewQuarantine(root string) (Quarantine, error) {
+	if strings.TrimSpace(root) == "" {
+		return Quarantine{}, domain.NewValidation("quarantine root is empty").
+			WithHint("set read.attachments.out_dir in the policy")
+	}
+	return Quarantine{Root: root}, nil
 }
 
 var _ usecase.QuarantineStore = Quarantine{}
 
-const maxNameLen = 120
+const (
+	maxNameLen    = 120
+	maxCollisions = 1000
+)
 
 // Save implements usecase.QuarantineStore.
 func (q Quarantine) Save(ctx context.Context, outDir, name string, content io.Reader, maxBytes int64) (string, int64, error) {
@@ -43,14 +57,9 @@ func (q Quarantine) Save(ctx context.Context, outDir, name string, content io.Re
 	if err != nil {
 		return "", 0, err
 	}
-	safe := SanitizeName(name)
-	path := filepath.Join(dir, safe)
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	f, path, err := createUnique(dir, SanitizeName(name))
 	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return "", 0, domain.NewConflict("an attachment with this name is already in the quarantine directory")
-		}
-		return "", 0, domain.NewGeneral("cannot create attachment file").WithCause(err)
+		return "", 0, err
 	}
 	n, copyErr := io.Copy(f, io.LimitReader(&ctxReader{ctx, content}, maxBytes+1))
 	closeErr := f.Close()
@@ -81,32 +90,106 @@ func (c *ctxReader) Read(p []byte) (int, error) {
 	return c.r.Read(p)
 }
 
-// resolve creates outDir (0700) if needed, resolves symlinks and checks
-// containment in Root.
+// createUnique creates dir/name exclusively (0600, no symlink following). If
+// the name is taken it tries "stem (n).ext" so an earlier file (or a sender
+// who controls names) cannot make later downloads fail (FR-R12).
+func createUnique(dir, name string) (*os.File, string, error) {
+	ext := filepath.Ext(name)
+	stem := strings.TrimSuffix(name, ext)
+	if stem == "" {
+		stem, ext = name, ""
+	}
+	for i := 0; i < maxCollisions; i++ {
+		cand := name
+		if i > 0 {
+			cand = fmt.Sprintf("%s (%d)%s", stem, i, ext)
+		}
+		path := filepath.Join(dir, cand)
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+		if err == nil {
+			return f, path, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return nil, "", domain.NewGeneral("cannot create attachment file").WithCause(err)
+		}
+	}
+	return nil, "", domain.NewConflict("too many attachments with this name in the quarantine directory")
+}
+
+// resolveProspective returns the real path p would have if created: the deepest
+// existing ancestor is resolved with EvalSymlinks and the not-yet-existing
+// remainder (cleaned, absolute, so no "..") is appended. Nothing is created.
+func resolveProspective(p string) (string, error) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", domain.NewGeneral("cannot resolve path").WithCause(err)
+	}
+	var rest []string
+	cur := abs
+	for {
+		real, err := filepath.EvalSymlinks(cur)
+		if err == nil {
+			for i := len(rest) - 1; i >= 0; i-- {
+				real = filepath.Join(real, rest[i])
+			}
+			return real, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", domain.NewGeneral("cannot resolve quarantine directory").WithCause(err)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return "", domain.NewGeneral("cannot resolve quarantine directory").WithCause(err)
+		}
+		rest = append(rest, filepath.Base(cur))
+		cur = parent
+	}
+}
+
+func within(root, dir string) bool {
+	rel, err := filepath.Rel(root, dir)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+}
+
+func outside() error {
+	return domain.NewPolicyDenied("attachment output directory is outside the policy quarantine directory").
+		WithHint("choose a directory inside read.attachments.out_dir")
+}
+
+// resolve checks containment of outDir in Root using the deepest existing
+// ancestors (symlinks resolved), and only then creates the directories (0700).
+// The result is re-resolved after creation to close a symlink race.
 func (q Quarantine) resolve(outDir string) (string, error) {
-	if err := os.MkdirAll(outDir, 0o700); err != nil {
+	if strings.TrimSpace(q.Root) == "" {
+		return "", domain.NewValidation("quarantine root is empty").
+			WithHint("set read.attachments.out_dir in the policy")
+	}
+	root, err := resolveProspective(q.Root)
+	if err != nil {
+		return "", err
+	}
+	want, err := resolveProspective(outDir)
+	if err != nil {
+		return "", err
+	}
+	if !within(root, want) {
+		return "", outside()
+	}
+	if err := os.MkdirAll(want, 0o700); err != nil {
 		return "", domain.NewGeneral("cannot create quarantine directory").WithCause(err)
 	}
-	dir, err := filepath.EvalSymlinks(outDir)
+	got, err := filepath.EvalSymlinks(want)
 	if err != nil {
 		return "", domain.NewGeneral("cannot resolve quarantine directory").WithCause(err)
 	}
-	if q.Root == "" {
-		return dir, nil
-	}
-	if err := os.MkdirAll(q.Root, 0o700); err != nil {
-		return "", domain.NewGeneral("cannot create quarantine root").WithCause(err)
-	}
-	root, err := filepath.EvalSymlinks(q.Root)
+	realRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return "", domain.NewGeneral("cannot resolve quarantine root").WithCause(err)
 	}
-	rel, err := filepath.Rel(root, dir)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return "", domain.NewPolicyDenied("attachment output directory is outside the policy quarantine directory").
-			WithHint("choose a directory inside read.attachments.out_dir")
+	if !within(realRoot, got) {
+		return "", outside()
 	}
-	return dir, nil
+	return got, nil
 }
 
 // SanitizeName reduces an untrusted attachment name to a safe single path

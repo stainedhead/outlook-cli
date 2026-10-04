@@ -34,6 +34,11 @@ type Config struct {
 	Retention time.Duration
 	// LockTimeout zero means DefaultLockTimeout.
 	LockTimeout time.Duration
+	// DirInfo reports mode and owner uid of a directory (default: os.Stat).
+	// Injected in tests (FR-R13).
+	DirInfo func(path string) (mode os.FileMode, uid int, err error)
+	// UID returns the current user id (default: os.Getuid).
+	UID func() int
 }
 
 // File is the file-backed usecase.Ledger.
@@ -41,6 +46,8 @@ type File struct {
 	path      string
 	retention time.Duration
 	lockWait  time.Duration
+	dirInfo   func(string) (os.FileMode, int, error)
+	uid       func() int
 }
 
 var _ usecase.Ledger = (*File)(nil)
@@ -57,7 +64,52 @@ func New(cfg Config) (*File, error) {
 	if f.lockWait <= 0 {
 		f.lockWait = DefaultLockTimeout
 	}
+	f.dirInfo, f.uid = cfg.DirInfo, cfg.UID
+	if f.dirInfo == nil {
+		f.dirInfo = osDirInfo
+	}
+	if f.uid == nil {
+		f.uid = os.Getuid
+	}
+	if err := f.checkDir(); err != nil {
+		return nil, err
+	}
 	return f, nil
+}
+
+func osDirInfo(path string) (os.FileMode, int, error) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return 0, 0, err
+	}
+	uid := -1
+	if sys, ok := st.Sys().(*syscall.Stat_t); ok {
+		uid = int(sys.Uid)
+	}
+	return st.Mode(), uid, nil
+}
+
+// checkDir refuses an existing ledger directory that is not mode 0700 or not
+// owned by the current user (FR-R13). A missing directory is fine: it is
+// created 0700 on first use. This is a guardrail against mistakes, not
+// against a hostile local user (see the trust model in the docs).
+func (l *File) checkDir() error {
+	dir := filepath.Dir(l.path)
+	mode, uid, err := l.dirInfo(dir)
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+		return nil // created (or failing closed) at first use
+	}
+	if err != nil {
+		return failClosed("cannot inspect ledger directory", err)
+	}
+	hint := "chmod 700 and chown the ledger directory to the agent user, or point the ledger at a private directory"
+	if mode.Perm() != 0o700 {
+		return domain.NewGeneral(fmt.Sprintf("ledger directory mode is %04o, want 0700", mode.Perm())).WithHint(hint)
+	}
+	if uid != l.uid() {
+		return domain.NewGeneral("ledger directory is not owned by the current user").WithHint(hint)
+	}
+	return nil
 }
 
 type entryJSON struct {
@@ -66,6 +118,8 @@ type entryJSON struct {
 	At          time.Time `json:"at"`
 	RefID       string    `json:"ref_id,omitempty"`
 	Count       int       `json:"count,omitempty"`
+	// Kind is "send" or "draft"; empty (older builds) means send.
+	Kind string `json:"kind,omitempty"`
 }
 
 type fileJSON struct {
@@ -87,6 +141,9 @@ func (l *File) withLock(ctx context.Context, fn func(*fileJSON) (bool, error)) e
 	dir := filepath.Dir(l.path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return failClosed("cannot create ledger directory", err)
+	}
+	if err := l.checkDir(); err != nil {
+		return err
 	}
 	lock, err := os.OpenFile(l.path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
@@ -151,11 +208,19 @@ func (l *File) load() (*fileJSON, error) {
 		st.Entries = map[string]entryJSON{}
 	}
 	for k, e := range st.Entries {
-		if k == "" || !validStatus(e.Status) {
+		if k == "" || !validStatus(e.Status) || !validKind(e.Kind) {
 			return nil, failClosed("ledger file is corrupt", nil)
 		}
 	}
 	return &st, nil
+}
+
+func validKind(k string) bool {
+	switch usecase.LedgerKind(k) {
+	case "", usecase.LedgerKindSend, usecase.LedgerKindDraft:
+		return true
+	}
+	return false
 }
 
 func validStatus(s string) bool {
@@ -207,7 +272,21 @@ func (l *File) store(st *fileJSON) error {
 }
 
 func toEntry(key string, e entryJSON) usecase.LedgerEntry {
-	return usecase.LedgerEntry{Key: key, Fingerprint: e.Fingerprint, Status: usecase.LedgerStatus(e.Status), At: e.At, RefID: e.RefID, Count: e.Count}
+	return usecase.LedgerEntry{Key: key, Fingerprint: e.Fingerprint, Status: usecase.LedgerStatus(e.Status), Kind: kindOf(e), At: e.At, RefID: e.RefID, Count: e.Count}
+}
+
+func kindOf(e entryJSON) usecase.LedgerKind {
+	if e.Kind == "" {
+		return usecase.LedgerKindSend
+	}
+	return usecase.LedgerKind(e.Kind)
+}
+
+// countsTowardRate: send-kind entries that are sent or pending (pending counts
+// conservatively: an ambiguous send may have gone out).
+func countsTowardRate(e entryJSON) bool {
+	return kindOf(e) == usecase.LedgerKindSend &&
+		(e.Status == string(usecase.LedgerSent) || e.Status == string(usecase.LedgerPending))
 }
 
 func (l *File) prune(st *fileJSON, now time.Time) {
@@ -218,20 +297,55 @@ func (l *File) prune(st *fileJSON, now time.Time) {
 	}
 }
 
-// Reserve implements usecase.Ledger.
+// Reserve implements usecase.Ledger. It reserves a send-kind entry with no
+// rate check.
 func (l *File) Reserve(ctx context.Context, key, fingerprint string, at time.Time) (usecase.LedgerEntry, bool, error) {
+	e, created, _, err := l.ReserveWithin(ctx, key, fingerprint, usecase.LedgerKindSend, at, nil)
+	return e, created, err
+}
+
+// ReserveWithin implements usecase.Ledger: the rate-window count and the
+// reservation happen under one lock (FR-R8).
+func (l *File) ReserveWithin(ctx context.Context, key, fingerprint string, kind usecase.LedgerKind, at time.Time, windows []usecase.RateWindow) (usecase.LedgerEntry, bool, []int, error) {
 	if key == "" {
-		return usecase.LedgerEntry{}, false, domain.NewValidation("ledger key is empty")
+		return usecase.LedgerEntry{}, false, nil, domain.NewValidation("ledger key is empty")
+	}
+	if kind != usecase.LedgerKindSend && kind != usecase.LedgerKindDraft {
+		return usecase.LedgerEntry{}, false, nil, domain.NewValidation("ledger kind is invalid")
 	}
 	var out usecase.LedgerEntry
 	var created bool
+	var counts []int
 	err := l.withLock(ctx, func(st *fileJSON) (bool, error) {
 		e, existed := st.Entries[key]
 		if existed && e.Status != string(usecase.LedgerFailed) {
 			out = toEntry(key, e)
 			return false, nil
 		}
-		st.Entries[key] = entryJSON{Fingerprint: fingerprint, Status: string(usecase.LedgerPending), At: at}
+		if kind == usecase.LedgerKindSend && len(windows) > 0 {
+			counts = make([]int, len(windows))
+			over := false
+			for k, o := range st.Entries {
+				if k == key || !countsTowardRate(o) {
+					continue
+				}
+				for i, w := range windows {
+					if !o.At.Before(w.Since) {
+						counts[i]++
+					}
+				}
+			}
+			for i, w := range windows {
+				if w.Cap > 0 && counts[i] >= w.Cap {
+					over = true
+				}
+			}
+			if over {
+				out = usecase.LedgerEntry{Key: key, Fingerprint: fingerprint, Status: usecase.LedgerOverCap, Kind: kind}
+				return false, nil
+			}
+		}
+		st.Entries[key] = entryJSON{Fingerprint: fingerprint, Status: string(usecase.LedgerPending), At: at, Kind: string(kind)}
 		l.prune(st, at)
 		out = toEntry(key, st.Entries[key])
 		if !existed {
@@ -241,9 +355,15 @@ func (l *File) Reserve(ctx context.Context, key, fingerprint string, at time.Tim
 		return true, nil
 	})
 	if err != nil {
-		return usecase.LedgerEntry{}, false, err
+		return usecase.LedgerEntry{}, false, nil, err
 	}
-	return out, created, nil
+	if out.Status == usecase.LedgerOverCap {
+		return out, false, counts, nil
+	}
+	if !created {
+		counts = nil
+	}
+	return out, created, counts, nil
 }
 
 func (l *File) transition(ctx context.Context, key string, at time.Time, fn func(*entryJSON)) error {
@@ -279,7 +399,7 @@ func (l *File) SentSince(ctx context.Context, since time.Time) (int, error) {
 	n := 0
 	err := l.withLock(ctx, func(st *fileJSON) (bool, error) {
 		for _, e := range st.Entries {
-			if e.Status == string(usecase.LedgerSent) && !e.At.Before(since) {
+			if countsTowardRate(e) && !e.At.Before(since) {
 				n++
 			}
 		}

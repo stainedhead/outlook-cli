@@ -30,7 +30,7 @@ func TestQuarantineSaveWritesExclusive0600(t *testing.T) {
 	if b, _ := os.ReadFile(path); string(b) != "hello" {
 		t.Fatal(string(b))
 	}
-	if _, _, err := q.Save(ctx, filepath.Join(root, "sub"), "report.pdf", strings.NewReader("x"), 100); output.CategoryOf(err) != output.CategoryConflict {
+	if p2, _, err := q.Save(ctx, filepath.Join(root, "sub"), "report.pdf", strings.NewReader("x"), 100); err != nil || p2 == path {
 		t.Fatalf("existing file must not be overwritten: %v", err)
 	}
 	if b, _ := os.ReadFile(path); string(b) != "hello" {
@@ -96,8 +96,10 @@ func TestQuarantineDoesNotFollowSymlinkedFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := ledger.Quarantine{Root: root}
-	if _, _, err := q.Save(ctx, root, "evil.txt", strings.NewReader("pwn"), 10); err == nil {
-		t.Fatal("must refuse")
+	// FR-R12: a name collision gets a unique suffix; the symlink is not followed.
+	p, _, err := q.Save(ctx, root, "evil.txt", strings.NewReader("pwn"), 10)
+	if err != nil || filepath.Base(p) == "evil.txt" {
+		t.Fatal(p, err)
 	}
 	if b, _ := os.ReadFile(target); string(b) != "orig" {
 		t.Fatal("symlink target was written")
@@ -142,9 +144,10 @@ func TestSanitizeName(t *testing.T) {
 	}
 }
 
-func TestQuarantineWithoutRootResolvesOutDirOnly(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "q")
-	if _, _, err := (ledger.Quarantine{}).Save(ctx, dir, "a", strings.NewReader("x"), 5); err != nil {
+func TestQuarantineCreatesOutDirUnderRoot0700(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "q")
+	if _, _, err := (ledger.Quarantine{Root: root}).Save(ctx, dir, "a", strings.NewReader("x"), 5); err != nil {
 		t.Fatal(err)
 	}
 	if st, _ := os.Stat(dir); st.Mode().Perm() != 0o700 {
@@ -153,8 +156,8 @@ func TestQuarantineWithoutRootResolvesOutDirOnly(t *testing.T) {
 }
 
 func TestQuarantineInputValidation(t *testing.T) {
-	q := ledger.Quarantine{}
 	d := t.TempDir()
+	q := ledger.Quarantine{Root: d}
 	if _, _, err := q.Save(ctx, d, "a", strings.NewReader("x"), 0); output.CategoryOf(err) != output.CategoryValidation {
 		t.Fatal(err)
 	}
@@ -175,7 +178,7 @@ func (failReader) Read([]byte) (int, error) { return 0, errors.New("boom") }
 func TestQuarantineReadErrorRemovesPartial(t *testing.T) {
 	d := t.TempDir()
 	r := io.MultiReader(strings.NewReader("abc"), failReader{})
-	if _, _, err := (ledger.Quarantine{}).Save(ctx, d, "a", r, 50); err == nil {
+	if _, _, err := (ledger.Quarantine{Root: d}).Save(ctx, d, "a", r, 50); err == nil {
 		t.Fatal("expected error")
 	}
 	if es, _ := os.ReadDir(d); len(es) != 0 {
@@ -187,7 +190,7 @@ func TestQuarantineCancelledMidCopy(t *testing.T) {
 	d := t.TempDir()
 	c, cancel := context.WithCancel(ctx)
 	r := &cancelAfter{cancel: cancel}
-	if _, _, err := (ledger.Quarantine{}).Save(c, d, "a", r, 1<<20); !errors.Is(err, context.Canceled) {
+	if _, _, err := (ledger.Quarantine{Root: d}).Save(c, d, "a", r, 1<<20); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 	if es, _ := os.ReadDir(d); len(es) != 0 {
@@ -212,7 +215,7 @@ func (c *cancelAfter) Read(p []byte) (int, error) {
 func TestQuarantineUncreatableDirectory(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "file")
 	_ = os.WriteFile(f, nil, 0o600)
-	if _, _, err := (ledger.Quarantine{}).Save(ctx, filepath.Join(f, "sub"), "a", strings.NewReader("x"), 5); err == nil {
+	if _, _, err := (ledger.Quarantine{Root: f}).Save(ctx, filepath.Join(f, "sub"), "a", strings.NewReader("x"), 5); err == nil {
 		t.Fatal("expected error")
 	}
 	if _, _, err := (ledger.Quarantine{Root: filepath.Join(f, "root")}).Save(ctx, t.TempDir(), "a", strings.NewReader("x"), 5); err == nil {

@@ -91,7 +91,7 @@ func TestReserveEmptyKey(t *testing.T) {
 	}
 }
 
-func TestSentSinceCountsOnlySentAtOrAfter(t *testing.T) {
+func TestSentSinceCountsSentAndPendingAtOrAfter(t *testing.T) {
 	l, _ := newLedger(t)
 	for i, k := range []string{"a", "b", "c", "d"} {
 		_, _, _ = l.Reserve(ctx, k, "fp", t0)
@@ -104,7 +104,7 @@ func TestSentSinceCountsOnlySentAtOrAfter(t *testing.T) {
 		}
 	}
 	_, _, _ = l.Reserve(ctx, "pending", "fp", t0.Add(5*time.Hour))
-	for since, want := range map[time.Time]int{t0: 3, t0.Add(time.Hour): 2, t0.Add(2 * time.Hour): 1, t0.Add(2*time.Hour + 1): 0} {
+	for since, want := range map[time.Time]int{t0: 4, t0.Add(time.Hour): 3, t0.Add(2 * time.Hour): 2, t0.Add(2*time.Hour + 1): 1} {
 		n, err := l.SentSince(ctx, since)
 		if err != nil || n != want {
 			t.Errorf("since %v: %d (%v), want %d", since, n, err, want)
@@ -294,7 +294,7 @@ func TestStateSurvivesNewInstance(t *testing.T) {
 }
 
 func TestPruneDropsOldSentAndFailedButNeverPending(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "l.json")
+	p := filepath.Join(t.TempDir(), "state", "l.json")
 	l, _ := ledger.New(ledger.Config{Path: p, Retention: 24 * time.Hour})
 	for _, k := range []string{"sent", "failed", "pending"} {
 		_, _, _ = l.Reserve(ctx, k, "fp", t0)
@@ -308,8 +308,10 @@ func TestPruneDropsOldSentAndFailedButNeverPending(t *testing.T) {
 	if _, created, _ := l.Reserve(ctx, "sent", "fp", t0.Add(48*time.Hour)); !created {
 		t.Fatal("old sent entry should have been pruned")
 	}
-	if n, _ := l.SentSince(ctx, t0); n != 0 {
-		t.Fatalf("pruned sent entry still counted: %d", n)
+	// new, pending and the re-reserved "sent" key are all pending now; the
+	// pruned failed entry is not counted.
+	if n, _ := l.SentSince(ctx, t0); n != 3 {
+		t.Fatalf("pruned entries still counted: %d", n)
 	}
 }
 
